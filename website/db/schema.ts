@@ -233,3 +233,35 @@ export const dailyKeywords = pgTable("daily_keywords", {
 
 export type DailyKeyword = typeof dailyKeywords.$inferSelect;
 export type NewDailyKeyword = typeof dailyKeywords.$inferInsert;
+
+// Keyword extraction queue - tracks pending, processing, completed, and failed extractions
+export const keywordExtractionQueue = pgTable("keyword_extraction_queue", {
+  id: serial("id").primaryKey(),
+  syncRunId: integer("sync_run_id")
+    .notNull()
+    .references(() => syncRuns.id),
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+});
+
+export const keywordExtractionQueueRelations = relations(
+  keywordExtractionQueue,
+  ({ one }) => ({
+    syncRun: one(syncRuns, {
+      fields: [keywordExtractionQueue.syncRunId],
+      references: [syncRuns.id],
+    }),
+  })
+);
+
+export const syncRunsRelations = relations(syncRuns, ({ many }) => ({
+  queueRecords: many(keywordExtractionQueue),
+}));
+
+export type KeywordExtractionQueue =
+  typeof keywordExtractionQueue.$inferSelect;
+export type NewKeywordExtractionQueue =
+  typeof keywordExtractionQueue.$inferInsert;
