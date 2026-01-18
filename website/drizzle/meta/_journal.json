@@ -15,6 +15,13 @@
       "when": 1768683539523,
       "tag": "0001_gray_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1768695279150,
+      "tag": "0002_gray_unicorn",
+      "breakpoints": true
     }
   ]
 }
