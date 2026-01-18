@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 interface KeywordTrend {
   keyword: string;
@@ -36,18 +36,34 @@ interface TrendsData {
   newThisWeek: WeeklyMover[];
 }
 
+interface StatusData {
+  itemCount: number;
+  hasKeywords: boolean;
+  dateRange: { min: string; max: string } | null;
+}
+
 export default function KeywordTrendsPage() {
   const [data, setData] = useState<TrendsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusData | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionMessage, setExtractionMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchTrends = useCallback(() => {
+    setLoading(true);
+    setError(null);
     fetch("/api/keywords/trends")
       .then((res) => res.json())
       .then((json) => {
         if (json.error) {
-          setError(json.error);
+          // Check if it's just "no data" vs actual error
+          if (json.error.includes("No daily keywords found")) {
+            setData(null);
+          } else {
+            setError(json.error);
+          }
         } else {
           setData(json);
           // Select the latest date by default
@@ -59,6 +75,57 @@ export default function KeywordTrendsPage() {
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
   }, []);
+
+  const fetchStatus = useCallback(() => {
+    fetch("/api/keywords/status")
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.error) {
+          setStatus(json);
+        }
+      })
+      .catch(() => {
+        // Status fetch failure is not critical
+      });
+  }, []);
+
+  const extractKeywords = async (force: boolean = false) => {
+    setExtracting(true);
+    setExtractionMessage(force ? "Re-extracting all keywords..." : "Extracting keywords from synced items...");
+    try {
+      const url = force ? "/api/keywords/extract-daily?force=true" : "/api/keywords/extract-daily";
+      const res = await fetch(url, { method: "POST" });
+      const json = await res.json();
+      if (json.error) {
+        setExtractionMessage(`Error: ${json.error}`);
+      } else if (json.daysProcessed === 0 && json.message) {
+        setExtractionMessage(json.message);
+        // Still refresh to show current data
+        setTimeout(() => {
+          fetchTrends();
+          fetchStatus();
+          setExtractionMessage(null);
+        }, 2000);
+      } else {
+        setExtractionMessage(`Extracted keywords for ${json.daysProcessed} new days! (${json.totalDaysWithKeywords} total)`);
+        // Refresh the trends data
+        setTimeout(() => {
+          fetchTrends();
+          fetchStatus();
+          setExtractionMessage(null);
+        }, 1500);
+      }
+    } catch (err) {
+      setExtractionMessage(`Error: ${String(err)}`);
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrends();
+    fetchStatus();
+  }, [fetchTrends, fetchStatus]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr + "T00:00:00");
@@ -101,10 +168,118 @@ export default function KeywordTrendsPage() {
     );
   }
 
+  // Show empty state when no keyword data exists
+  if (!data && !error) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] text-slate-100">
+        <header className="border-b border-slate-800 bg-[#161b22]">
+          <div className="mx-auto max-w-6xl px-6 py-6">
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              <span className="text-emerald-400">📊</span> Keyword Trends
+            </h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Track trending topics on Hacker News
+            </p>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-2xl px-6 py-16">
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-8 text-center">
+            <div className="mb-4 text-5xl">📭</div>
+            <h2 className="mb-2 text-xl font-semibold text-white">No Keyword Data Yet</h2>
+            <p className="mb-6 text-slate-400">
+              Keyword trends need to be extracted from your synced Hacker News items.
+            </p>
+
+            {/* Status info */}
+            {status && (
+              <div className="mb-6 rounded-lg bg-[#0d1117] p-4 text-left">
+                <h3 className="mb-2 text-sm font-medium text-slate-300">Database Status</h3>
+                <div className="space-y-1 text-sm text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Items synced:</span>
+                    <span className={status.itemCount > 0 ? "text-emerald-400" : "text-yellow-400"}>
+                      {status.itemCount.toLocaleString()}
+                    </span>
+                  </div>
+                  {status.dateRange && (
+                    <div className="flex justify-between">
+                      <span>Date range:</span>
+                      <span className="text-slate-300">
+                        {status.dateRange.min} to {status.dateRange.max}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {status && status.itemCount === 0 ? (
+              <div className="space-y-4">
+                <p className="text-sm text-yellow-400">
+                  You need to sync some data first before extracting keywords.
+                </p>
+                <a
+                  href="/sync"
+                  className="inline-block rounded-lg bg-purple-600 px-6 py-3 font-medium text-white hover:bg-purple-700 transition-colors"
+                >
+                  Go to Sync Page
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {extractionMessage && (
+                  <div className={`rounded-lg p-3 text-sm ${
+                    extractionMessage.startsWith("Error")
+                      ? "bg-red-900/30 text-red-400"
+                      : "bg-emerald-900/30 text-emerald-400"
+                  }`}>
+                    {extractionMessage}
+                  </div>
+                )}
+                <button
+                  onClick={() => extractKeywords(false)}
+                  disabled={extracting}
+                  className="inline-block rounded-lg bg-emerald-600 px-6 py-3 font-medium text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {extracting ? "Extracting..." : "Extract Keywords Now"}
+                </button>
+                <p className="text-xs text-slate-500">
+                  This requires the keyword-service to be running locally on port 8000.
+                  <br />
+                  Run <code className="rounded bg-slate-800 px-1 py-0.5">cd keyword-service && python main.py</code>
+                </p>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0d1117]">
-        <div className="text-red-400">Error: {error}</div>
+      <div className="min-h-screen bg-[#0d1117] text-slate-100">
+        <header className="border-b border-slate-800 bg-[#161b22]">
+          <div className="mx-auto max-w-6xl px-6 py-6">
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              <span className="text-emerald-400">📊</span> Keyword Trends
+            </h1>
+          </div>
+        </header>
+        <main className="mx-auto max-w-2xl px-6 py-16">
+          <div className="rounded-xl border border-red-800 bg-red-900/20 p-8 text-center">
+            <div className="mb-4 text-4xl">⚠️</div>
+            <h2 className="mb-2 text-xl font-semibold text-red-400">Error Loading Trends</h2>
+            <p className="mb-4 text-slate-400">{error}</p>
+            <button
+              onClick={fetchTrends}
+              className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </main>
       </div>
     );
   }
@@ -114,12 +289,41 @@ export default function KeywordTrendsPage() {
       {/* Header */}
       <header className="border-b border-slate-800 bg-[#161b22]">
         <div className="mx-auto max-w-6xl px-6 py-6">
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            <span className="text-emerald-400">📊</span> Keyword Trends
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Track trending topics on Hacker News • {data?.dateRange.from} to {data?.dateRange.to}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                <span className="text-emerald-400">📊</span> Keyword Trends
+              </h1>
+              <p className="mt-1 text-sm text-slate-400">
+                Track trending topics on Hacker News • {data?.dateRange.from} to {data?.dateRange.to}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {extractionMessage && (
+                <span className={`text-sm ${
+                  extractionMessage.startsWith("Error") ? "text-red-400" : "text-emerald-400"
+                }`}>
+                  {extractionMessage}
+                </span>
+              )}
+              <button
+                onClick={() => extractKeywords(false)}
+                disabled={extracting}
+                className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 transition-colors disabled:opacity-50"
+                title="Extract keywords for new days only"
+              >
+                {extracting ? "Extracting..." : "Update Keywords"}
+              </button>
+              <button
+                onClick={() => extractKeywords(true)}
+                disabled={extracting}
+                className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-slate-400 hover:bg-slate-700 hover:text-white transition-colors disabled:opacity-50"
+                title="Clear and re-extract all keywords"
+              >
+                Force Refresh
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
