@@ -15,6 +15,13 @@
       "when": 1768683539523,
       "tag": "0001_gray_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1768693054841,
+      "tag": "0002_parallel_scream",
+      "breakpoints": true
     }
   ]
 }

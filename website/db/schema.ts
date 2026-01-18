@@ -6,6 +6,7 @@ import {
   boolean,
   pgEnum,
   timestamp,
+  real,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -191,6 +192,51 @@ export const userSubmissionsRelations = relations(
   })
 );
 
+// Keyword extraction runs - tracks each keyword analysis session
+export const keywordExtractions = pgTable("keyword_extractions", {
+  id: serial("id").primaryKey(),
+  // When the extraction was performed
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Number of items analyzed
+  itemCount: integer("item_count").notNull(),
+  // Total text length processed
+  textLength: integer("text_length").notNull(),
+  // Optional: date filter used (if any)
+  filterDate: text("filter_date"),
+  // Optional: comma-separated list of item IDs analyzed
+  itemIds: text("item_ids"),
+});
+
+// Keywords extracted from items
+export const keywords = pgTable("keywords", {
+  id: serial("id").primaryKey(),
+  // Reference to the extraction run
+  extractionId: integer("extraction_id")
+    .notNull()
+    .references(() => keywordExtractions.id, { onDelete: "cascade" }),
+  // The keyword text
+  keyword: text("keyword").notNull(),
+  // YAKE score (lower = more relevant)
+  score: real("score").notNull(),
+  // Rank within this extraction (1 = most relevant)
+  rank: integer("rank").notNull(),
+});
+
+// Relations for keyword extractions
+export const keywordExtractionsRelations = relations(
+  keywordExtractions,
+  ({ many }) => ({
+    keywords: many(keywords),
+  })
+);
+
+export const keywordsRelations = relations(keywords, ({ one }) => ({
+  extraction: one(keywordExtractions, {
+    fields: [keywords.extractionId],
+    references: [keywordExtractions.id],
+  }),
+}));
+
 // Type exports for use in application
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -199,3 +245,7 @@ export type NewItem = typeof items.$inferInsert;
 export type ItemType = (typeof itemTypeEnum.enumValues)[number];
 export type SyncRun = typeof syncRuns.$inferSelect;
 export type NewSyncRun = typeof syncRuns.$inferInsert;
+export type KeywordExtraction = typeof keywordExtractions.$inferSelect;
+export type NewKeywordExtraction = typeof keywordExtractions.$inferInsert;
+export type Keyword = typeof keywords.$inferSelect;
+export type NewKeyword = typeof keywords.$inferInsert;
