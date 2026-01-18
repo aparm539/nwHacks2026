@@ -250,32 +250,23 @@ export async function POST(request: NextRequest) {
         ).onConflictDoNothing();
 
         // Update keyword stats - find most recent item for each keyword
+        // Always search ALL items to find the true most recent item containing each keyword
         const isReprocessingToday = dateStr === today && existingDateSet.has(today);
         
         for (const kw of top75) {
           try {
             // Search for items containing this keyword (case-insensitive)
+            // Always search ALL items (no date filter) to get the globally most recent match
             const keywordLower = kw.keyword.toLowerCase();
             
-            // When re-processing today, search ALL items to get the true most recent
-            // Otherwise, search only within the current day's time range
             const matchingItem = await db
               .select({ id: items.id, time: items.time })
               .from(items)
               .where(
-                isReprocessingToday
-                  ? or(
-                      ilike(items.title, `%${keywordLower}%`),
-                      ilike(items.text, `%${keywordLower}%`)
-                    )
-                  : and(
-                      gte(items.time, startOfDay),
-                      lt(items.time, endOfDay),
-                      or(
-                        ilike(items.title, `%${keywordLower}%`),
-                        ilike(items.text, `%${keywordLower}%`)
-                      )
-                    )
+                or(
+                  ilike(items.title, `%${keywordLower}%`),
+                  ilike(items.text, `%${keywordLower}%`)
+                )
               )
               .orderBy(desc(items.time))
               .limit(1);
