@@ -1,22 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { items, syncRuns } from "@/db/schema";
-import { desc, eq, or, max } from "drizzle-orm";
-import {
-  fetchMaxItem,
-  findItemIdAtTimestamp,
-  ONE_WEEK_SECONDS,
-} from "@/lib/hn-api";
-
-interface StartSyncResult {
-  success: boolean;
-  syncRunId?: number;
-  startMaxItem?: number;
-  targetEndItem?: number;
-  totalItems?: number;
-  resumed?: boolean;
-  error?: string;
-}
+import { syncRuns } from "@/db/schema";
+import { desc, eq } from "drizzle-orm";
 
 interface SyncRunStatus {
   id: number;
@@ -30,86 +15,6 @@ interface SyncRunStatus {
   status: string;
   errorMessage: string | null;
   progress: number;
-}
-
-// POST - Start a new sync or resume an existing one
-export async function POST(): Promise<NextResponse<StartSyncResult>> {
-  try {
-    // Check for an existing running/paused sync
-    const [existingSync] = await db
-      .select()
-      .from(syncRuns)
-      .where(or(eq(syncRuns.status, "running"), eq(syncRuns.status, "paused")))
-      .orderBy(desc(syncRuns.startedAt))
-      .limit(1);
-
-    if (existingSync) {
-      // Resume the existing sync
-      await db
-        .update(syncRuns)
-        .set({ status: "running" })
-        .where(eq(syncRuns.id, existingSync.id));
-
-      return NextResponse.json({
-        success: true,
-        syncRunId: existingSync.id,
-        startMaxItem: existingSync.startMaxItem,
-        targetEndItem: existingSync.targetEndItem,
-        totalItems: existingSync.totalItems,
-        resumed: true,
-      });
-    }
-
-    // Start from the latest item we already have, but always consult HN for the true max
-    const [latestItem] = await db
-      .select({ maxId: max(items.id) })
-      .from(items)
-      .limit(1);
-
-    const remoteMaxItem = await fetchMaxItem();
-    const startMaxItem = latestItem?.maxId
-      ? Math.max(latestItem.maxId, remoteMaxItem)
-      : remoteMaxItem;
-
-    // Calculate one week ago timestamp
-    const now = Math.floor(Date.now() / 1000);
-    const oneWeekAgo = now - ONE_WEEK_SECONDS;
-
-    // Binary search to find the item ID at the one-week boundary
-    console.log("Finding item ID at one-week boundary...");
-    const targetEndItem = await findItemIdAtTimestamp(oneWeekAgo, remoteMaxItem);
-    console.log(`Target end item: ${targetEndItem}`);
-
-    const totalItems = Math.max(0, startMaxItem - targetEndItem);
-
-    // Create a new sync run
-    const [syncRun] = await db
-      .insert(syncRuns)
-      .values({
-        startMaxItem,
-        targetEndItem,
-        totalItems,
-        lastFetchedItem: startMaxItem,
-        itemsFetched: 0,
-        status: "running",
-      })
-      .returning();
-
-    return NextResponse.json({
-      success: true,
-      syncRunId: syncRun.id,
-      startMaxItem,
-      targetEndItem,
-      totalItems,
-      resumed: false,
-    });
-  } catch (error) {
-    console.error("Failed to start sync:", error);
-    return NextResponse.json(
-      { success: false, error: String(error) },
-      { status: 500 }
-    );
-  }
 }
 
 // GET - Get sync run status and history

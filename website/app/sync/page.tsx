@@ -49,6 +49,7 @@ export default function SyncDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [autoSync, setAutoSync] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [itemCount, setItemCount] = useState<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Fetch sync run history
@@ -64,18 +65,37 @@ export default function SyncDashboard() {
     }
   }, []);
 
-  // Start a new sync or resume
-  const startSync = async () => {
+  // Fetch sync status (item count and running sync state)
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sync/status");
+      const data = await res.json();
+      setItemCount(data.itemCount);
+    } catch {
+      // Status fetch failure is not critical
+    }
+  }, []);
+
+  // Start a new sync (initial or incremental)
+  const startSync = async (type: "initial" | "incremental") => {
     setError(null);
     setSyncing(true);
 
     try {
-      const res = await fetch("/api/sync", { method: "POST" });
+      const endpoint = type === "initial" ? "/api/sync/initial" : "/api/sync/incremental";
+      const res = await fetch(endpoint, { method: "POST" });
       const data = await res.json();
 
       if (!data.success) {
-        setError(data.error || "Failed to start sync");
+        setError(data.error || `Failed to start ${type} sync`);
         setSyncing(false);
+        return;
+      }
+
+      // If no items to sync, just refresh status
+      if (data.totalItems === 0) {
+        setSyncing(false);
+        fetchStatus();
         return;
       }
 
@@ -83,7 +103,7 @@ export default function SyncDashboard() {
       setAutoSync(true);
       processChunk(data.syncRunId);
     } catch {
-      setError("Failed to start sync");
+      setError(`Failed to start ${type} sync`);
       setSyncing(false);
     }
   };
@@ -129,6 +149,7 @@ export default function SyncDashboard() {
       await fetch("/api/sync", { method: "DELETE" });
       setSyncing(false);
       fetchRuns();
+      fetchStatus();
     } catch {
       setError("Failed to pause sync");
     }
@@ -208,9 +229,13 @@ export default function SyncDashboard() {
   // Initial fetch and polling (reduced frequency since we have SSE)
   useEffect(() => {
     fetchRuns();
-    const interval = setInterval(fetchRuns, 10000); // Reduced to 10s since SSE handles real-time
+    fetchStatus();
+    const interval = setInterval(() => {
+      fetchRuns();
+      fetchStatus();
+    }, 10000); // Reduced to 10s since SSE handles real-time
     return () => clearInterval(interval);
-  }, [fetchRuns]);
+  }, [fetchRuns, fetchStatus]);
 
   // Check if there's an active sync to resume
   useEffect(() => {
@@ -352,16 +377,30 @@ export default function SyncDashboard() {
           </div>
         )}
 
-        {/* Start New Sync Button */}
+        {/* Start New Sync Buttons */}
         {!currentProgress || currentProgress.done ? (
-          <div className="mb-8">
+          <div className="mb-8 flex gap-4">
             <button
-              onClick={startSync}
+              onClick={() => startSync("initial")}
+              disabled={syncing || (itemCount !== null && itemCount > 0)}
+              className="px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
+            >
+              {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
+            </button>
+            <button
+              onClick={() => startSync("incremental")}
               disabled={syncing}
               className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Fetch new items since last sync"
             >
-              {syncing ? "Starting..." : "Start New Sync (Last 7 Days)"}
+              {syncing ? "Starting..." : "Incremental Sync"}
             </button>
+            {itemCount !== null && (
+              <span className="self-center text-sm text-gray-500">
+                {itemCount.toLocaleString()} items in database
+              </span>
+            )}
           </div>
         ) : null}
 
