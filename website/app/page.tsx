@@ -17,6 +17,23 @@ interface TrendsData {
   topGainers: WeeklyMover[];
   topLosers: WeeklyMover[];
   newThisWeek: WeeklyMover[];
+  dailyTrends: DailyTrends[];
+}
+
+interface KeywordTrend {
+  keyword: string;
+  currentRank: number;
+  previousRank: number | null;
+  rankChange: number | null;
+  currentScore: number;
+  variantCount: number;
+  trend: "up" | "down" | "new" | "stable";
+}
+
+interface DailyTrends {
+  date: string;
+  itemCount: number;
+  keywords: KeywordTrend[];
 }
 
 export default function Home() {
