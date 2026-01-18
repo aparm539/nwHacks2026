@@ -1,6 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface SyncRun {
   id: number;
@@ -297,18 +303,18 @@ export default function SyncDashboard() {
     return num.toLocaleString();
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
       case "completed":
-        return "text-green-600 bg-green-100";
+        return "default";
       case "running":
-        return "text-blue-600 bg-blue-100";
+        return "secondary";
       case "paused":
-        return "text-yellow-600 bg-yellow-100";
+        return "outline";
       case "failed":
-        return "text-red-600 bg-red-100";
+        return "destructive";
       default:
-        return "text-gray-600 bg-gray-100";
+        return "secondary";
     }
   };
 
@@ -330,115 +336,112 @@ export default function SyncDashboard() {
 
         {/* Error Display */}
         {error && (
-          <div className="mb-6 p-4 bg-red-100 border border-red-300 text-red-700 rounded-lg">
-            {error}
-            <button
-              onClick={() => setError(null)}
-              className="ml-4 text-red-500 hover:text-red-700"
-            >
-              Dismiss
-            </button>
-          </div>
+          <Alert variant="destructive" className="mb-6">
+            <AlertDescription className="flex items-center justify-between">
+              {error}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setError(null)}
+              >
+                Dismiss
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Current Sync Progress */}
         {currentProgress && !currentProgress.done && (
-          <div className="mb-8 p-6 bg-white rounded-lg shadow-md">
-            <div className="mb-4">
-              <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>Progress: {currentProgress.progress}%</span>
-                <span>
-                  {formatNumber(currentProgress.itemsFetched)} /{" "}
-                  {formatNumber(currentProgress.totalItems)} items
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-4">
-                <div
-                  className="bg-blue-600 h-4 rounded-full transition-all duration-300"
-                  style={{ width: `${currentProgress.progress}%` }}
-                />
-              </div>
-            </div>
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Current Sync Progress</CardTitle>
+              <CardDescription>
+                {formatNumber(currentProgress.itemsFetched)} /{" "}
+                {formatNumber(currentProgress.totalItems)} items ({currentProgress.progress}%)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Progress value={currentProgress.progress} className="mb-4" />
 
-            {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
-              <div>
-                <span className="text-gray-500">Current ID:</span>{" "}
-                <span className="font-mono">
-                  {formatNumber(currentProgress.lastFetchedItem)}
-                </span>
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Current ID:</span>{" "}
+                  <span className="font-mono">
+                    {formatNumber(currentProgress.lastFetchedItem)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Target ID:</span>{" "}
+                  <span className="font-mono">
+                    {formatNumber(currentProgress.targetEndItem)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Remaining:</span>{" "}
+                  <span className="font-mono">
+                    {formatNumber(
+                      currentProgress.lastFetchedItem - currentProgress.targetEndItem
+                    )}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-gray-500">Target ID:</span>{" "}
-                <span className="font-mono">
-                  {formatNumber(currentProgress.targetEndItem)}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">Remaining:</span>{" "}
-                <span className="font-mono">
-                  {formatNumber(
-                    currentProgress.lastFetchedItem - currentProgress.targetEndItem
-                  )}
-                </span>
-              </div>
-            </div>
 
-            {/* Controls */}
-            <div className="flex gap-4">
-              {syncing ? (
-                <button
-                  onClick={pauseSync}
-                  className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition"
-                >
-                  Pause Sync
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setSyncing(true);
-                    setAutoSync(true);
-                    processChunk(currentProgress.syncRunId);
-                  }}
-                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-                >
-                  Continue Sync
-                </button>
-              )}
-            </div>
-          </div>
+              {/* Controls */}
+              <div className="flex gap-4">
+                {syncing ? (
+                  <Button onClick={pauseSync} variant="secondary">
+                    Pause Sync
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setSyncing(true);
+                      setAutoSync(true);
+                      processChunk(currentProgress.syncRunId);
+                    }}
+                  >
+                    Continue Sync
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Start New Sync Buttons */}
         {!currentProgress || currentProgress.done ? (
           <div className="mb-8">
-            <div className="flex gap-4 mb-4">
-              <button
+            <div className="flex gap-4 mb-4 items-center">
+              <Button
                 onClick={() => startSync("initial")}
                 disabled={syncing || (itemCount !== null && itemCount > 0)}
-                className="px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="default"
+                size="lg"
                 title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
               >
                 {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => startSync("incremental")}
                 disabled={syncing}
-                className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="default"
+                size="lg"
                 title="Fetch new items since last sync"
               >
                 {syncing ? "Starting..." : "Incremental Sync"}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={testCronSync}
                 disabled={cronTesting}
-                className="px-8 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="outline"
+                size="lg"
                 title="Test the cron sync endpoint (5-minute sync simulation)"
               >
                 {cronTesting ? "Testing..." : "Test Cron"}
-              </button>
+              </Button>
               {itemCount !== null && (
-                <span className="self-center text-sm text-gray-500">
+                <span className="text-sm text-muted-foreground">
                   {itemCount.toLocaleString()} items in database
                 </span>
               )}
@@ -447,90 +450,72 @@ export default function SyncDashboard() {
         ) : null}
 
         {/* Sync History Table */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <h2 className="text-xl font-semibold p-6 border-b">Sync History</h2>
-
-          {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
-          ) : runs.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              No sync runs yet. Start your first sync!
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      ID
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      Progress
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      Items
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      Range
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      Started
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                      Completed
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {runs.map((run) => (
-                    <tr key={run.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-mono">{run.id}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                            run.status
-                          )}`}
-                        >
-                          {run.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-24 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full"
-                              style={{ width: `${run.progress}%` }}
-                            />
+        <Card>
+          <CardHeader>
+            <CardTitle>Sync History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="p-8 text-center text-muted-foreground">Loading...</div>
+            ) : runs.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">
+                No sync runs yet. Start your first sync!
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Progress</TableHead>
+                      <TableHead>Items</TableHead>
+                      <TableHead>Range</TableHead>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Completed</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {runs.map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell className="font-mono">{run.id}</TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusVariant(run.status)}>
+                            {run.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24">
+                              <Progress value={run.progress} />
+                            </div>
+                            <span className="text-sm text-muted-foreground">
+                              {run.progress}%
+                            </span>
                           </div>
-                          <span className="text-sm text-gray-600">
-                            {run.progress}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        {formatNumber(run.itemsFetched)} /{" "}
-                        {formatNumber(run.totalItems)}
-                      </td>
-                      <td className="px-4 py-3 text-sm font-mono text-gray-500">
-                        {formatNumber(run.targetEndItem)} →{" "}
-                        {formatNumber(run.startMaxItem)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {formatDate(run.startedAt)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {formatDate(run.completedAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {formatNumber(run.itemsFetched)} /{" "}
+                          {formatNumber(run.totalItems)}
+                        </TableCell>
+                        <TableCell className="text-sm font-mono text-muted-foreground">
+                          {formatNumber(run.targetEndItem)} →{" "}
+                          {formatNumber(run.startMaxItem)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(run.startedAt)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(run.completedAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
