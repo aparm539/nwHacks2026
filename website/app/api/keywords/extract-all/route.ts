@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { items, keywordExtractions, keywords as keywordsTable } from "@/db/schema";
-import { inArray, sql } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { isBlacklisted } from "@/lib/keyword-blacklist";
 
 const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";

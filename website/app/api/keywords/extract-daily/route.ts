@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     const maxDate = new Date(maxTime * 1000).toISOString().split("T")[0];
     
     // Generate all dates from minDate to maxDate
-    let currentDate = new Date(minDate + "T00:00:00Z");
+    const currentDate = new Date(minDate + "T00:00:00Z");
     const endDate = new Date(maxDate + "T00:00:00Z");
     
     while (currentDate <= endDate) {

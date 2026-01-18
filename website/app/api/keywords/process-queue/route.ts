@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { findPendingRecords, updateStatus, logError } from "@/lib/keyword-queue";
 
 export async function POST() {

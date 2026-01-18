@@ -186,6 +186,7 @@ export default function DraftPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"rank" | "recent">("rank");
   const [aiThinking, setAiThinking] = useState(false);
+  const [showOnlyScoring, setShowOnlyScoring] = useState(true);
 
   const aiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
@@ -587,6 +588,14 @@ export default function DraftPage() {
     });
   }, [draftState.players, draftState.rosters]);
 
+  // Filter recent items to only those that impact a player's score
+  const scoringItems = useMemo(() => {
+    return recentItems.filter(item => {
+      const scorers = getItemScorers(item);
+      return scorers.length > 0;
+    });
+  }, [recentItems, getItemScorers]);
+
   // Calculate points for each player based on keyword matches in recent items
   const playerPoints = useMemo(() => {
     const points: Record<number, { total: number; byKeyword: Record<string, number> }> = {};
@@ -962,23 +971,52 @@ export default function DraftPage() {
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-800 bg-[#161b22]">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white">New Posts & Comments</h3>
-                <span className="text-sm text-slate-500">{recentItems.length} new</span>
+                <h3 className="text-lg font-semibold text-white">
+                  {showOnlyScoring ? "Scoring Updates" : "All Posts"}
+                </h3>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-500">
+                    {showOnlyScoring ? `${scoringItems.length} scoring` : `${recentItems.length} total`}
+                  </span>
+                  <button
+                    onClick={() => setShowOnlyScoring(!showOnlyScoring)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      showOnlyScoring ? "bg-emerald-600" : "bg-slate-600"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        showOnlyScoring ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <span className="text-xs text-slate-400">Scoring only</span>
+                </div>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {recentItems.length === 0 ? (
+                {(showOnlyScoring ? scoringItems : recentItems).length === 0 ? (
                   <div className="col-span-full text-center py-12">
-                    <div className="text-slate-400 mb-2">Waiting for new posts...</div>
+                    <div className="text-slate-400 mb-2">
+                      {showOnlyScoring ? "Waiting for scoring updates..." : "Waiting for new posts..."}
+                    </div>
                     <div className="text-sm text-slate-600">
-                      New posts and comments will appear here as they are made on Hacker News.
-                      <br />
-                      Points are earned when your keywords appear in new content.
+                      {showOnlyScoring ? (
+                        <>
+                          When new posts or comments contain your drafted keywords, they will appear here.
+                          <br />
+                          {recentItems.length > 0 && (
+                            <span className="text-slate-500">({recentItems.length} items seen, none matching keywords yet)</span>
+                          )}
+                        </>
+                      ) : (
+                        "New posts and comments will appear here as they are made on Hacker News."
+                      )}
                     </div>
                   </div>
                 ) : (
-                  recentItems.map((item) => {
+                  (showOnlyScoring ? scoringItems : recentItems).map((item) => {
                     const scorers = getItemScorers(item);
                     const hasScorers = scorers.length > 0;
                     
@@ -986,8 +1024,8 @@ export default function DraftPage() {
                       <div
                         key={item.id}
                         className={`rounded-lg border p-4 transition-colors ${
-                          hasScorers 
-                            ? "border-emerald-700/50 bg-[#161b22] ring-1 ring-emerald-500/20" 
+                          hasScorers
+                            ? "border-emerald-700/50 bg-[#161b22] ring-1 ring-emerald-500/20"
                             : "border-slate-800 bg-[#161b22] hover:border-slate-700"
                         }`}
                       >
@@ -1004,12 +1042,12 @@ export default function DraftPage() {
                                 }`}
                               >
                                 <div className={`w-2 h-2 rounded-full ${player.color}`} />
-                                <span className={player.isHuman ? "text-emerald-300 font-medium" : "text-slate-300"}>
-                                  {player.isHuman ? "You" : player.name}
-                                </span>
-                                <span className={player.isHuman ? "text-emerald-400 font-bold" : "text-slate-400 font-medium"}>
-                                  +{points}
-                                </span>
+                              <span className={player.isHuman ? "text-emerald-300 font-medium" : "text-slate-300"}>
+                                {player.isHuman ? "You" : player.name}
+                              </span>
+                              <span className={player.isHuman ? "text-emerald-400 font-bold" : "text-slate-400 font-medium"}>
+                                +{points}
+                              </span>
                                 <span className="text-slate-500">
                                   ({keywords.join(", ")})
                                 </span>
@@ -1036,7 +1074,7 @@ export default function DraftPage() {
                           </div>
                         )}
                         {item.text && (() => {
-                          const matchedKeywords = scorers.flatMap(s => s.keywords);
+                          const matchedKeywords = hasScorers ? scorers.flatMap(s => s.keywords) : [];
                           const { text: snippetText, hasPrefix } = extractTextWithKeywords(
                             item.text,
                             matchedKeywords,
@@ -1306,108 +1344,128 @@ export default function DraftPage() {
           </div>
         </div>
 
-        {/* Right Panel - Remaining Picks */}
+        {/* Right Panel - Teams */}
         <div className="w-80 lg:w-96 flex flex-col overflow-hidden bg-[#161b22]">
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {/* Generate all remaining picks in draft order */}
-            {(() => {
-              const numPlayers = draftState.players.length;
-              const totalPicks = numPlayers * draftState.totalRounds;
-              const remainingPicks: { pickIndex: number; player: Player; round: number; pickInRound: number }[] = [];
+          <div className="p-4 border-b border-slate-800">
+            <h3 className="text-lg font-semibold text-white">Teams</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* Show all players' teams */}
+            {draftState.players.map((player) => {
+              const roster = draftState.rosters[player.id];
+              const isHuman = player.isHuman;
+              const isCurrentPicker = currentPicker?.id === player.id;
               
-              // Generate all remaining picks
-              for (let pickIdx = draftState.currentPickIndex; pickIdx < totalPicks; pickIdx++) {
-                const round = Math.floor(pickIdx / numPlayers) + 1;
-                const positionInRound = pickIdx % numPlayers;
-                const isReversed = (round - 1) % 2 === 1;
-                const playerIndex = isReversed ? numPlayers - 1 - positionInRound : positionInRound;
-                const player = draftState.players[playerIndex];
-                
-                remainingPicks.push({
-                  pickIndex: pickIdx,
-                  player,
-                  round,
-                  pickInRound: positionInRound + 1,
-                });
-              }
-
-              // Find human's next pick (first occurrence after current)
-              const humanNextPickIndex = remainingPicks.findIndex(
-                (p, idx) => idx > 0 && p.player.isHuman
+              return (
+                <div 
+                  key={player.id}
+                  className={`rounded-xl border overflow-hidden ${
+                    isCurrentPicker
+                      ? "border-yellow-500 border-2"
+                      : isHuman
+                        ? "border-emerald-700"
+                        : "border-slate-800"
+                  } ${isHuman ? "bg-emerald-900/20" : "bg-[#0d1117]"}`}
+                >
+                  {/* Player header */}
+                  <div className={`flex items-center justify-between p-3 ${
+                    isHuman ? "bg-emerald-900/30" : "bg-[#161b22]"
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full ${player.color}`} />
+                      <span className={`font-medium ${isHuman ? "text-emerald-400" : "text-white"}`}>
+                        {isHuman ? "Your Team" : player.name}
+                      </span>
+                      {isCurrentPicker && (
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                          isHuman ? "bg-emerald-600 text-white" : "bg-yellow-600 text-white"
+                        }`}>
+                          {aiThinking && !isHuman ? "THINKING..." : "PICKING"}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-500">
+                      {roster.length}/{draftState.totalRounds} picks
+                    </span>
+                  </div>
+                  
+                  {/* Roster */}
+                  <div className="px-3 pb-3 pt-2 space-y-1.5">
+                    {roster.length > 0 ? (
+                      roster.map((keyword) => {
+                        const pickData = draftState.pickHistory.find(p => p.keyword === keyword);
+                        return (
+                          <div 
+                            key={keyword} 
+                            className={`flex items-center justify-between rounded-lg px-3 py-1.5 ${
+                              isHuman ? "bg-emerald-900/30" : "bg-[#161b22]"
+                            }`}
+                          >
+                            <span className={`text-sm font-medium ${isHuman ? "text-emerald-400" : "text-slate-300"}`}>
+                              {keyword}
+                            </span>
+                            <span className="text-xs text-slate-500">#{pickData?.rank}</span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-slate-600 text-center py-2">No picks yet</div>
+                    )}
+                    {/* Empty slots */}
+                    {Array.from({ length: draftState.totalRounds - roster.length }).map((_, idx) => (
+                      <div 
+                        key={`empty-${idx}`}
+                        className="flex items-center justify-center rounded-lg px-3 py-1.5 border border-dashed border-slate-700 text-xs text-slate-600"
+                      >
+                        —
+                      </div>
+                    ))}
+                  </div>
+                </div>
               );
-              const humanNextPick = humanNextPickIndex > 0 ? remainingPicks[humanNextPickIndex] : null;
-
-              return remainingPicks.map((pick, idx) => {
-                const { player, pickIndex, round } = pick;
-                const roster = draftState.rosters[player.id];
-                const isCurrentPick = idx === 0;
-                const isHumanNextPick = humanNextPick && pickIndex === humanNextPick.pickIndex;
-                const isHuman = player.isHuman;
+            })}
+          </div>
+          
+          {/* Pick Order Preview */}
+          <div className="border-t border-slate-800 p-4">
+            <div className="text-xs text-slate-500 mb-2">Next picks:</div>
+            <div className="flex flex-wrap gap-1.5">
+              {(() => {
+                const numPlayers = draftState.players.length;
+                const totalPicks = numPlayers * draftState.totalRounds;
+                const upcomingPicks: { player: Player; pickIndex: number }[] = [];
                 
-                // Only expand: current picker OR human's next pick
-                const isExpanded = isCurrentPick || isHumanNextPick;
-
-                return (
-                  <div 
-                    key={`pick-${pickIndex}`} 
-                    className={`rounded-xl border bg-[#0d1117] overflow-hidden transition-colors ${
-                      isCurrentPick 
-                        ? "border-yellow-500 border-2" 
-                        : isHumanNextPick
-                          ? "border-emerald-600 border-2"
-                          : "border-slate-800"
+                // Show next 6 picks
+                for (let i = 0; i < Math.min(6, totalPicks - draftState.currentPickIndex); i++) {
+                  const pickIdx = draftState.currentPickIndex + i;
+                  const round = Math.floor(pickIdx / numPlayers) + 1;
+                  const positionInRound = pickIdx % numPlayers;
+                  const isReversed = (round - 1) % 2 === 1;
+                  const playerIndex = isReversed ? numPlayers - 1 - positionInRound : positionInRound;
+                  upcomingPicks.push({
+                    player: draftState.players[playerIndex],
+                    pickIndex: pickIdx,
+                  });
+                }
+                
+                return upcomingPicks.map(({ player, pickIndex }, idx) => (
+                  <div
+                    key={pickIndex}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
+                      idx === 0 
+                        ? "bg-yellow-600/30 border border-yellow-600/50 text-yellow-300"
+                        : player.isHuman
+                          ? "bg-emerald-900/30 border border-emerald-700/50 text-emerald-400"
+                          : "bg-slate-800 text-slate-400"
                     }`}
                   >
-                    <div
-                      className={`flex items-center justify-between p-3 ${
-                        isExpanded ? "" : "hover:bg-[#161b22]"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-slate-600 w-8">#{pickIndex + 1}</span>
-                        <div className={`w-3 h-3 rounded-full ${player.color}`} />
-                        <span className={`font-medium ${isCurrentPick || isHumanNextPick ? "text-white" : "text-slate-400"}`}>
-                          {isHuman ? "You" : player.name}
-                        </span>
-                        <span className="text-xs text-slate-600">R{round}</span>
-                        {isCurrentPick && (
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                            isHuman ? "bg-emerald-600 text-white" : "bg-yellow-600 text-white"
-                          }`}>
-                            {aiThinking ? "THINKING..." : "NOW"}
-                          </span>
-                        )}
-                        {isHumanNextPick && !isCurrentPick && (
-                          <span className="text-xs bg-emerald-600/50 text-emerald-300 px-2 py-0.5 rounded">NEXT</span>
-                        )}
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        {roster.length}/{draftState.totalRounds}
-                      </span>
-                    </div>
-                    {isExpanded && (
-                      <div className="px-3 pb-3 space-y-1.5">
-                        {roster.length > 0 ? (
-                          roster.map((keyword) => {
-                            const pickData = draftState.pickHistory.find(p => p.keyword === keyword);
-                            return (
-                              <div key={keyword} className="flex items-center justify-between bg-[#161b22] rounded-lg px-3 py-1.5">
-                                <span className={`text-sm font-medium ${isHuman ? "text-emerald-400" : "text-slate-300"}`}>
-                                  {keyword}
-                                </span>
-                                <span className="text-xs text-slate-500">#{pickData?.rank}</span>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="text-xs text-slate-600 text-center py-1">No picks yet</div>
-                        )}
-                      </div>
-                    )}
+                    <div className={`w-2 h-2 rounded-full ${player.color}`} />
+                    <span>{player.isHuman ? "You" : player.name}</span>
+                    {idx === 0 && <span className="text-yellow-400">•</span>}
                   </div>
-                );
-              });
-            })()}
+                ));
+              })()}
+            </div>
           </div>
         </div>
       </div>
