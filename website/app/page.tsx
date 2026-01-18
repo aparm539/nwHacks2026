@@ -22,18 +22,52 @@ interface TrendsData {
 export default function Home() {
   const [trends, setTrends] = useState<TrendsData | null>(null);
   const [loadingTrends, setLoadingTrends] = useState(true);
- useEffect(() => {
-  // Fetch keyword trends
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  useEffect(() => {
+    // Fetch keyword trends
     fetch("/api/keywords/trends")
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
           setTrends(data);
+          // Select the latest date by default
+          if (data.dailyTrends?.length > 0) {
+            setSelectedDate(data.dailyTrends[data.dailyTrends.length - 1].date);
+          }
         }
       })
       .catch(console.error)
       .finally(() => setLoadingTrends(false));
   }, []);
+  // Helper functions for table display
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr + "T00:00:00");
+    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+  const getTrendIcon = (trend: string) => {
+    switch (trend) {
+      case "up": return "📈";
+      case "down": return "📉";
+      case "new": return "🆕";
+      default: return "➖";
+    }
+  };
+  const getTrendColor = (trend: string) => {
+    switch (trend) {
+      case "up": return "text-emerald-400";
+      case "down": return "text-red-400";
+      case "new": return "text-cyan-400";
+      default: return "text-slate-400";
+    }
+  };
+  const getChangeDisplay = (change: number | null, isNew: boolean) => {
+    if (isNew) return <span className="text-cyan-400">NEW</span>;
+    if (change === null) return <span className="text-slate-500">-</span>;
+    if (change > 0) return <span className="text-emerald-400">+{change}</span>;
+    if (change < 0) return <span className="text-red-400">{change}</span>;
+    return <span className="text-slate-400">0</span>;
+  };
+  const selectedDayData = trends?.dailyTrends.find((d) => d.date === selectedDate);
 
   return (
     <div className="min-h-screen bg-[#0d1117] text-slate-100">
@@ -103,232 +137,161 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Left: Story Feed */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-white">Today&apos;s Top Stories</h3>
-              <span className="text-sm text-slate-500">past 24 hours</span>
-            </div>
-
-            {loadingStories ? (
-              <div className="space-y-4">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="rounded-xl border border-slate-800 bg-[#161b22] p-5 animate-pulse">
-                    <div className="h-5 bg-slate-800 rounded w-3/4 mb-3" />
-                    <div className="h-4 bg-slate-800 rounded w-1/4" />
+        {/* Weekly Movers Section - grid style like keywords page */}
+        <div className="mb-8 grid gap-6 lg:grid-cols-3">
+          {/* Top Gainers */}
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-emerald-400">
+              <span>🚀</span> Top Gainers
+            </h2>
+            <div className="space-y-2">
+              {loadingTrends ? (
+                [...Array(5)].map((_, i) => (
+                  <div key={i} className="h-10 bg-slate-800 rounded-lg animate-pulse" />
+                ))
+              ) : trends?.topGainers && trends.topGainers.length > 0 ? (
+                trends.topGainers.slice(0, 5).map((mover, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-lg bg-[#0d1117] px-3 py-2">
+                    <span className="font-medium text-slate-200">{mover.keyword}</span>
+                    <span className="text-emerald-400 font-mono">
+                      +{mover.weeklyChange} ranks
+                    </span>
                   </div>
-                ))}
-              </div>
-            ) : stories.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-[#161b22] p-8 text-center">
-                <p className="text-slate-400">No stories yet. Run a sync to fetch data.</p>
-                <Link
-                  href="/sync"
-                  className="inline-block mt-4 px-4 py-2 rounded-lg bg-slate-700 text-white text-sm hover:bg-slate-600 transition-colors"
-                >
-                  Go to Sync
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {stories.map((story) => (
-                  <article
-                    key={story.id}
-                    className="rounded-xl border border-slate-800 bg-[#161b22] p-5 hover:border-slate-700 transition-colors"
-                  >
-                    <a
-                      href={story.url || `https://news.ycombinator.com/item?id=${story.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block group"
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No gainers this week</div>
+              )}
+            </div>
+          </div>
+
+          {/* Top Losers */}
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-red-400">
+              <span>📉</span> Top Losers
+            </h2>
+            <div className="space-y-2">
+              {loadingTrends ? (
+                [...Array(5)].map((_, i) => (
+                  <div key={i} className="h-10 bg-slate-800 rounded-lg animate-pulse" />
+                ))
+              ) : trends?.topLosers && trends.topLosers.length > 0 ? (
+                trends.topLosers.slice(0, 5).map((mover, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-lg bg-[#0d1117] px-3 py-2">
+                    <span className="font-medium text-slate-200">{mover.keyword}</span>
+                    <span className="text-red-400 font-mono">
+                      {mover.weeklyChange} ranks
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No losers this week</div>
+              )}
+            </div>
+          </div>
+
+          {/* New This Week */}
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-cyan-400">
+              <span>🆕</span> New This Week
+            </h2>
+            <div className="space-y-2">
+              {loadingTrends ? (
+                [...Array(5)].map((_, i) => (
+                  <div key={i} className="h-10 bg-slate-800 rounded-lg animate-pulse" />
+                ))
+              ) : trends?.newThisWeek && trends.newThisWeek.length > 0 ? (
+                trends.newThisWeek.slice(0, 5).map((mover, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-lg bg-[#0d1117] px-3 py-2">
+                    <span className="font-medium text-slate-200">{mover.keyword}</span>
+                    <span className="text-cyan-400 font-mono">
+                      #{mover.currentRank}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No new keywords</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+
+        {/* Daily Trends Selector - always visible */}
+        {trends?.dailyTrends && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            {trends.dailyTrends.map((day) => (
+              <button
+                key={day.date}
+                onClick={() => setSelectedDate(day.date)}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                  selectedDate === day.date
+                    ? "bg-emerald-600 text-white"
+                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
+                }`}
+              >
+                {formatDate(day.date)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Daily Keywords Table - shown if a day is selected */}
+        {selectedDayData && (
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] overflow-hidden">
+            <div className="border-b border-slate-800 bg-[#1c2128] px-6 py-4">
+              <h2 className="text-lg font-semibold text-white">
+                {formatDate(selectedDayData.date)}
+              </h2>
+              <p className="text-sm text-slate-400">
+                {selectedDayData.itemCount.toLocaleString()} posts & comments analyzed
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-800 text-left text-sm text-slate-400">
+                    <th className="px-6 py-3 font-medium">Rank</th>
+                    <th className="px-6 py-3 font-medium">Keyword</th>
+                    <th className="px-6 py-3 font-medium text-center">Trend</th>
+                    <th className="px-6 py-3 font-medium text-right">Change</th>
+                    <th className="px-6 py-3 font-medium text-right">Variants</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedDayData.keywords.slice(0, 30).map((kw, idx) => (
+                    <tr
+                      key={idx}
+                      className="border-b border-slate-800/50 hover:bg-[#1c2128] transition-colors"
                     >
-                      <h4 className="text-lg font-semibold text-white group-hover:text-slate-300 transition-colors mb-2">
-                        {story.title && decodeHtmlEntities(story.title)}
-                      </h4>
-                    </a>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
-                      {story.score !== null && story.score > 0 && (
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10 3.5L12.5 8.5L18 9.5L14 13.5L15 19L10 16L5 19L6 13.5L2 9.5L7.5 8.5L10 3.5Z" />
-                          </svg>
-                          <span className="text-slate-300">{story.score}</span>
+                      <td className="px-6 py-3">
+                        <span className="font-mono text-slate-300">#{kw.currentRank}</span>
+                      </td>
+                      <td className="px-6 py-3">
+                        <span className="font-medium text-white">{kw.keyword}</span>
+                      </td>
+                      <td className="px-6 py-3 text-center">
+                        <span className={getTrendColor(kw.trend)}>
+                          {getTrendIcon(kw.trend)}
                         </span>
-                      )}
-                      {story.by && (
-                        <span>
-                          by <span className="text-slate-400">{story.by}</span>
-                        </span>
-                      )}
-                      <span>{formatTimeAgo(story.time)}</span>
-                      {story.descendants !== null && story.descendants > 0 && (
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                          </svg>
-                          {story.descendants}
-                        </span>
-                      )}
-                      {story.url && (
-                        <span className="text-slate-600">({getDomain(story.url)})</span>
-                      )}
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <a
-                        href={`https://news.ycombinator.com/item?id=${story.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                      >
-                        View on HN
-                      </a>
-                    </div>
-                  </article>
-                ))}
+                      </td>
+                      <td className="px-6 py-3 text-right font-mono">
+                        {getChangeDisplay(kw.rankChange, kw.trend === "new")}
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <span className="text-slate-400">{kw.variantCount}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {selectedDayData.keywords.length > 30 && (
+              <div className="border-t border-slate-800 px-6 py-3 text-center text-sm text-slate-500">
+                Showing top 30 of {selectedDayData.keywords.length} keywords
               </div>
             )}
           </div>
-
-          {/* Right: Keyword Rankings Sidebar */}
-          <aside className="w-full lg:w-80 flex-shrink-0">
-            <div className="sticky top-8 space-y-6">
-              {/* Top Gainers */}
-              <div className="rounded-xl border border-slate-800 bg-[#161b22] overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-800 bg-[#1c2128]">
-                  <h3 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                    Top Movers
-                  </h3>
-                </div>
-                <div className="p-4">
-                  {loadingTrends ? (
-                    <div className="space-y-2">
-                      {[...Array(5)].map((_, i) => (
-                        <div key={i} className="h-10 bg-slate-800 rounded-lg animate-pulse" />
-                      ))}
-                    </div>
-                  ) : trends?.topGainers && trends.topGainers.length > 0 ? (
-                    <div className="space-y-2">
-                      {trends.topGainers.slice(0, 5).map((kw, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between rounded-lg bg-[#0d1117] px-4 py-2.5"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono text-slate-600">#{kw.currentRank}</span>
-                            <span className="font-medium text-white">{kw.keyword}</span>
-                          </div>
-                          <span className="text-emerald-400 font-semibold text-sm flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                            </svg>
-                            +{kw.weeklyChange}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500 text-center py-4">No data yet</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Top Losers */}
-              <div className="rounded-xl border border-slate-800 bg-[#161b22] overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-800 bg-[#1c2128]">
-                  <h3 className="text-lg font-bold text-red-400 flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
-                    </svg>
-                    Falling
-                  </h3>
-                </div>
-                <div className="p-4">
-                  {loadingTrends ? (
-                    <div className="space-y-2">
-                      {[...Array(5)].map((_, i) => (
-                        <div key={i} className="h-10 bg-slate-800 rounded-lg animate-pulse" />
-                      ))}
-                    </div>
-                  ) : trends?.topLosers && trends.topLosers.length > 0 ? (
-                    <div className="space-y-2">
-                      {trends.topLosers.slice(0, 5).map((kw, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between rounded-lg bg-[#0d1117] px-4 py-2.5"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono text-slate-600">#{kw.currentRank}</span>
-                            <span className="font-medium text-white">{kw.keyword}</span>
-                          </div>
-                          <span className="text-red-400 font-semibold text-sm flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 012 0v7.586l2.293-2.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                            {kw.weeklyChange}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500 text-center py-4">No data yet</p>
-                  )}
-                </div>
-              </div>
-
-              {/* New This Week */}
-              <div className="rounded-xl border border-slate-800 bg-[#161b22] overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-800 bg-[#1c2128]">
-                  <h3 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                    </svg>
-                    New This Week
-                  </h3>
-                </div>
-                <div className="p-4">
-                  {loadingTrends ? (
-                    <div className="space-y-2">
-                      {[...Array(5)].map((_, i) => (
-                        <div key={i} className="h-10 bg-slate-800 rounded-lg animate-pulse" />
-                      ))}
-                    </div>
-                  ) : trends?.newThisWeek && trends.newThisWeek.length > 0 ? (
-                    <div className="space-y-2">
-                      {trends.newThisWeek.slice(0, 5).map((kw, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between rounded-lg bg-[#0d1117] px-4 py-2.5"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono text-slate-600">#{kw.currentRank}</span>
-                            <span className="font-medium text-white">{kw.keyword}</span>
-                          </div>
-                          <span className="text-white text-xs font-medium px-2 py-0.5 rounded bg-slate-700">
-                            NEW
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500 text-center py-4">No new keywords</p>
-                  )}
-                </div>
-              </div>
-
-              {/* View All Link */}
-              <Link
-                href="/keywords"
-                className="block text-center text-sm text-slate-400 hover:text-white transition-colors py-2"
-              >
-                View All Keywords →
-              </Link>
-            </div>
-          </aside>
-        </div>
+        )}
       </main>
     </div>
   );
