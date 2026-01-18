@@ -244,3 +244,23 @@ export const dailyKeywords = pgTable(
 
 export type DailyKeyword = typeof dailyKeywords.$inferSelect;
 export type NewDailyKeyword = typeof dailyKeywords.$inferInsert;
+
+// Keyword stats table - global stats for each keyword (updated incrementally)
+export const keywordStats = pgTable("keyword_stats", {
+  id: serial("id").primaryKey(),
+  // The keyword (unique across all time)
+  keyword: text("keyword").notNull().unique(),
+  // Unix timestamp of most recent item containing this keyword
+  lastItemTime: integer("last_item_time").notNull(),
+  // ID of the most recent item (for linking)
+  lastItemId: integer("last_item_id"),
+  // First time this keyword appeared (unix timestamp)
+  firstSeenTime: integer("first_seen_time").notNull(),
+  // Number of days this keyword has appeared
+  totalDaysAppeared: integer("total_days_appeared").notNull().default(1),
+  // Last updated timestamp
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type KeywordStat = typeof keywordStats.$inferSelect;
+export type NewKeywordStat = typeof keywordStats.$inferInsert;

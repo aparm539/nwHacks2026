@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { items, dailyKeywords } from "@/db/schema";
-import { and, gte, lt, inArray, sql } from "drizzle-orm";
+import { items, dailyKeywords, keywordStats } from "@/db/schema";
+import { and, gte, lt, inArray, sql, desc, or, ilike } from "drizzle-orm";
 import { isBlacklisted } from "@/lib/keyword-blacklist";
 
 const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";
@@ -98,14 +98,18 @@ export async function POST(request: NextRequest) {
 
     // Generate list of all dates in range
     const allDates: string[] = [];
-    let currentTimestamp = minTime;
-    while (currentTimestamp <= maxTime) {
-      const date = new Date(currentTimestamp * 1000);
-      const dateStr = date.toISOString().split("T")[0];
-      if (!allDates.includes(dateStr)) {
-        allDates.push(dateStr);
-      }
-      currentTimestamp += 86400; // Add one day
+    
+    // Get the date strings for min and max times
+    const minDate = new Date(minTime * 1000).toISOString().split("T")[0];
+    const maxDate = new Date(maxTime * 1000).toISOString().split("T")[0];
+    
+    // Generate all dates from minDate to maxDate
+    let currentDate = new Date(minDate + "T00:00:00Z");
+    const endDate = new Date(maxDate + "T00:00:00Z");
+    
+    while (currentDate <= endDate) {
+      allDates.push(currentDate.toISOString().split("T")[0]);
+      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
     }
 
     // Get dates that already have keywords extracted
@@ -117,9 +121,10 @@ export async function POST(request: NextRequest) {
     // Filter to only dates that need processing
     let dates: string[];
     if (forceReextract) {
-      // Clear all existing keywords and reprocess everything
-      console.log("Force re-extraction: clearing existing daily keywords...");
+      // Clear all existing keywords and stats, reprocess everything
+      console.log("Force re-extraction: clearing existing daily keywords and stats...");
       await db.delete(dailyKeywords);
+      await db.delete(keywordStats);
       dates = allDates;
     } else {
       // Only process dates that don't have keywords yet
@@ -225,6 +230,61 @@ export async function POST(request: NextRequest) {
             itemCount: dayItems.length,
           }))
         ).onConflictDoNothing();
+
+        // Update keyword stats - find most recent item for each keyword
+        for (const kw of top75) {
+          try {
+            // Search for items containing this keyword (case-insensitive)
+            const keywordLower = kw.keyword.toLowerCase();
+            const matchingItem = await db
+              .select({ id: items.id, time: items.time })
+              .from(items)
+              .where(
+                and(
+                  gte(items.time, startOfDay),
+                  lt(items.time, endOfDay),
+                  or(
+                    ilike(items.title, `%${keywordLower}%`),
+                    ilike(items.text, `%${keywordLower}%`)
+                  )
+                )
+              )
+              .orderBy(desc(items.time))
+              .limit(1);
+
+            if (matchingItem.length > 0) {
+              const itemTime = matchingItem[0].time;
+              const itemId = matchingItem[0].id;
+
+              // Upsert into keywordStats
+              await db
+                .insert(keywordStats)
+                .values({
+                  keyword: kw.keyword,
+                  lastItemTime: itemTime,
+                  lastItemId: itemId,
+                  firstSeenTime: itemTime,
+                  totalDaysAppeared: 1,
+                })
+                .onConflictDoUpdate({
+                  target: keywordStats.keyword,
+                  set: {
+                    // Update lastItemTime only if this item is more recent
+                    lastItemTime: sql`GREATEST(${keywordStats.lastItemTime}, ${itemTime})`,
+                    lastItemId: sql`CASE WHEN ${itemTime} > ${keywordStats.lastItemTime} THEN ${itemId} ELSE ${keywordStats.lastItemId} END`,
+                    // Update firstSeenTime only if this item is older
+                    firstSeenTime: sql`LEAST(${keywordStats.firstSeenTime}, ${itemTime})`,
+                    // Increment days appeared
+                    totalDaysAppeared: sql`${keywordStats.totalDaysAppeared} + 1`,
+                    updatedAt: sql`NOW()`,
+                  },
+                });
+            }
+          } catch (statsError) {
+            // Log but don't fail the whole extraction
+            console.error(`Error updating stats for keyword "${kw.keyword}":`, statsError);
+          }
+        }
       }
 
       results.push({

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 
 interface KeywordTrend {
   keyword: string;
@@ -42,6 +43,8 @@ interface StatusData {
   dateRange: { min: string; max: string } | null;
 }
 
+const POLL_INTERVAL_SECONDS = 20;
+
 export default function KeywordTrendsPage() {
   const [data, setData] = useState<TrendsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,31 +53,72 @@ export default function KeywordTrendsPage() {
   const [status, setStatus] = useState<StatusData | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractionMessage, setExtractionMessage] = useState<string | null>(null);
+  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [countdown, setCountdown] = useState(POLL_INTERVAL_SECONDS);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
 
-  const fetchTrends = useCallback(() => {
-    setLoading(true);
-    setError(null);
+  // Compare two trends data objects to see if they're different
+  const hasDataChanged = useCallback((oldData: TrendsData | null, newData: TrendsData | null): boolean => {
+    if (!oldData && !newData) return false;
+    if (!oldData || !newData) return true;
+    
+    // Compare daily trends length and latest day's keywords
+    if (oldData.dailyTrends.length !== newData.dailyTrends.length) return true;
+    
+    const oldLatest = oldData.dailyTrends[oldData.dailyTrends.length - 1];
+    const newLatest = newData.dailyTrends[newData.dailyTrends.length - 1];
+    
+    if (!oldLatest || !newLatest) return true;
+    if (oldLatest.date !== newLatest.date) return true;
+    if (oldLatest.itemCount !== newLatest.itemCount) return true;
+    if (oldLatest.keywords.length !== newLatest.keywords.length) return true;
+    
+    // Compare top keywords to detect ranking changes
+    for (let i = 0; i < Math.min(10, oldLatest.keywords.length); i++) {
+      if (oldLatest.keywords[i]?.keyword !== newLatest.keywords[i]?.keyword) return true;
+      if (oldLatest.keywords[i]?.currentRank !== newLatest.keywords[i]?.currentRank) return true;
+    }
+    
+    return false;
+  }, []);
+
+  const fetchTrends = useCallback((silent: boolean = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     fetch("/api/keywords/trends")
       .then((res) => res.json())
       .then((json) => {
         if (json.error) {
           // Check if it's just "no data" vs actual error
           if (json.error.includes("No daily keywords found")) {
-            setData(null);
+            if (!silent) setData(null);
           } else {
-            setError(json.error);
+            if (!silent) setError(json.error);
           }
         } else {
-          setData(json);
-          // Select the latest date by default
-          if (json.dailyTrends?.length > 0) {
+          // Only update if data has actually changed
+          setData((prevData) => {
+            if (hasDataChanged(prevData, json)) {
+              return json;
+            }
+            return prevData;
+          });
+          // Select the latest date by default (only on initial load)
+          if (!silent && json.dailyTrends?.length > 0) {
             setSelectedDate(json.dailyTrends[json.dailyTrends.length - 1].date);
           }
         }
       })
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((err) => {
+        if (!silent) setError(String(err));
+      })
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
+  }, [hasDataChanged]);
 
   const fetchStatus = useCallback(() => {
     fetch("/api/keywords/status")
@@ -89,43 +133,91 @@ export default function KeywordTrendsPage() {
       });
   }, []);
 
-  const extractKeywords = async (force: boolean = false) => {
-    setExtracting(true);
-    setExtractionMessage(force ? "Re-extracting all keywords..." : "Extracting keywords from synced items...");
+  const extractKeywords = async (force: boolean = false, silent: boolean = false) => {
+    if (!silent) {
+      setExtracting(true);
+      setExtractionMessage(force ? "Re-extracting all keywords..." : "Extracting keywords from synced items...");
+    }
     try {
       const url = force ? "/api/keywords/extract-daily?force=true" : "/api/keywords/extract-daily";
       const res = await fetch(url, { method: "POST" });
       const json = await res.json();
       if (json.error) {
-        setExtractionMessage(`Error: ${json.error}`);
+        if (!silent) setExtractionMessage(`Error: ${json.error}`);
       } else if (json.daysProcessed === 0 && json.message) {
-        setExtractionMessage(json.message);
-        // Still refresh to show current data
-        setTimeout(() => {
-          fetchTrends();
-          fetchStatus();
-          setExtractionMessage(null);
-        }, 2000);
+        // No new days to process - just silently refresh data
+        fetchTrends(true);
+        fetchStatus();
+        if (!silent) {
+          setExtractionMessage(json.message);
+          setTimeout(() => setExtractionMessage(null), 2000);
+        }
       } else {
-        setExtractionMessage(`Extracted keywords for ${json.daysProcessed} new days! (${json.totalDaysWithKeywords} total)`);
-        // Refresh the trends data
-        setTimeout(() => {
-          fetchTrends();
-          fetchStatus();
-          setExtractionMessage(null);
-        }, 1500);
+        // New data extracted - refresh
+        fetchTrends(silent);
+        fetchStatus();
+        if (!silent) {
+          setExtractionMessage(`Extracted keywords for ${json.daysProcessed} new days! (${json.totalDaysWithKeywords} total)`);
+          setTimeout(() => setExtractionMessage(null), 1500);
+        }
       }
     } catch (err) {
-      setExtractionMessage(`Error: ${String(err)}`);
+      if (!silent) setExtractionMessage(`Error: ${String(err)}`);
     } finally {
-      setExtracting(false);
+      if (!silent) setExtracting(false);
     }
   };
 
   useEffect(() => {
-    fetchTrends();
+    fetchTrends(false);
     fetchStatus();
   }, [fetchTrends, fetchStatus]);
+
+  // Auto-update: periodically extract new keywords (silently)
+  useEffect(() => {
+    if (!autoUpdate) {
+      // Clean up timers when disabled
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      setCountdown(POLL_INTERVAL_SECONDS);
+      return;
+    }
+
+    const autoExtract = async () => {
+      setCountdown(POLL_INTERVAL_SECONDS);
+      // Silent extraction - no UI updates unless data actually changes
+      await extractKeywords(false, true);
+    };
+
+    // Initial silent extract
+    autoExtract();
+
+    // Set up the polling interval
+    pollRef.current = setInterval(autoExtract, POLL_INTERVAL_SECONDS * 1000);
+
+    // Set up the countdown timer (updates every second)
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => (prev > 1 ? prev - 1 : POLL_INTERVAL_SECONDS));
+    }, 1000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoUpdate]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr + "T00:00:00");
@@ -290,13 +382,24 @@ export default function KeywordTrendsPage() {
       <header className="border-b border-slate-800 bg-[#161b22]">
         <div className="mx-auto max-w-6xl px-6 py-6">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">
-                <span className="text-emerald-400">📊</span> Keyword Trends
-              </h1>
-              <p className="mt-1 text-sm text-slate-400">
-                Track trending topics on Hacker News • {data?.dateRange.from} to {data?.dateRange.to}
-              </p>
+            <div className="flex items-center gap-4">
+              <Link
+                href="/"
+                className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                <span className="text-sm font-medium">Back</span>
+              </Link>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-white">
+                  <span className="text-emerald-400">📊</span> Keyword Trends
+                </h1>
+                <p className="mt-1 text-sm text-slate-400">
+                  Track trending topics on Hacker News • {data?.dateRange.from} to {data?.dateRange.to}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {extractionMessage && (
@@ -306,6 +409,54 @@ export default function KeywordTrendsPage() {
                   {extractionMessage}
                 </span>
               )}
+
+              {/* Auto-Update Controls */}
+              {autoUpdate && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg border border-slate-700">
+                  <div className="relative w-6 h-6">
+                    <svg className="w-6 h-6 transform -rotate-90">
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="#374151"
+                        strokeWidth="2"
+                        fill="none"
+                      />
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="#10b981"
+                        strokeWidth="2"
+                        fill="none"
+                        strokeDasharray={`${(countdown / POLL_INTERVAL_SECONDS) * 63} 63`}
+                        className="transition-all duration-1000 ease-linear"
+                      />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-[10px] font-medium text-slate-300">
+                      {countdown}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-400">Next update</span>
+                </div>
+              )}
+              <button
+                onClick={() => setAutoUpdate(!autoUpdate)}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  autoUpdate
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                }`}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    autoUpdate ? "bg-white animate-pulse" : "bg-slate-500"
+                  }`}
+                />
+                {autoUpdate ? "Auto-Update On" : "Auto-Update Off"}
+              </button>
+
               <button
                 onClick={() => extractKeywords(false)}
                 disabled={extracting}

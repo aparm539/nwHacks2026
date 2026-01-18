@@ -66,7 +66,8 @@ export const BLACKLISTED_KEYWORDS: string[] = [
   "open",
   "understand",
   "hard",
-  "tool"
+  "tool",
+  "’re"
   
 ];
 
