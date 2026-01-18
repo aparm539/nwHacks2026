@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { items, dailyKeywords } from "@/db/schema";
 import { and, gte, lt, inArray, sql } from "drizzle-orm";
@@ -50,7 +50,7 @@ function aggregateKeywords(keywords: KeywordResult[]): AggregatedKeyword[] {
     
     const lowerKeyword = kw.keyword.toLowerCase();
     
-    const rootTerms = ["claude", "rust", "python", "agent", "api", "openai", "gpt", "llm", "ai", "machine learning", "deep learning", "javascript", "typescript", "react", "node", "docker", "kubernetes", "aws", "google", "microsoft", "apple", "linux", "github", "open source"];
+    const rootTerms = ["claude", "rust", "python", "agent", "api", "openai", "gpt", "llm", "ai", "machine learning", "deep learning", "javascript", "typescript", "react", "node", "docker", "kubernetes", "aws", "google", "microsoft", "apple", "linux", "github", "open source", "Adams", "user", "Windows"];
     let matchedRoot = rootTerms.find(root => lowerKeyword.includes(root));
     
     if (!matchedRoot) matchedRoot = kw.keyword;
@@ -78,11 +78,10 @@ function aggregateKeywords(keywords: KeywordResult[]): AggregatedKeyword[] {
     .sort((a, b) => b.count - a.count);
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    // Clear existing daily keywords
-    console.log("Clearing existing daily keywords...");
-    await db.delete(dailyKeywords);
+    const { searchParams } = new URL(request.url);
+    const forceReextract = searchParams.get("force") === "true";
     
     // Get the date range from items table
     const dateRange = await db
@@ -97,19 +96,48 @@ export async function POST() {
       return NextResponse.json({ error: "No items in database" }, { status: 404 });
     }
 
-    // Generate list of dates to process
-    const dates: string[] = [];
+    // Generate list of all dates in range
+    const allDates: string[] = [];
     let currentTimestamp = minTime;
     while (currentTimestamp <= maxTime) {
       const date = new Date(currentTimestamp * 1000);
       const dateStr = date.toISOString().split("T")[0];
-      if (!dates.includes(dateStr)) {
-        dates.push(dateStr);
+      if (!allDates.includes(dateStr)) {
+        allDates.push(dateStr);
       }
       currentTimestamp += 86400; // Add one day
     }
 
-    console.log(`Processing ${dates.length} days from ${dates[0]} to ${dates[dates.length - 1]}`);
+    // Get dates that already have keywords extracted
+    const existingDates = await db
+      .selectDistinct({ date: dailyKeywords.date })
+      .from(dailyKeywords);
+    const existingDateSet = new Set(existingDates.map(d => d.date));
+
+    // Filter to only dates that need processing
+    let dates: string[];
+    if (forceReextract) {
+      // Clear all existing keywords and reprocess everything
+      console.log("Force re-extraction: clearing existing daily keywords...");
+      await db.delete(dailyKeywords);
+      dates = allDates;
+    } else {
+      // Only process dates that don't have keywords yet
+      dates = allDates.filter(d => !existingDateSet.has(d));
+    }
+
+    if (dates.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: "All dates already have keywords extracted",
+        daysProcessed: 0,
+        totalDaysWithKeywords: existingDateSet.size,
+        dateRange: { from: allDates[0], to: allDates[allDates.length - 1] },
+        results: [],
+      });
+    }
+
+    console.log(`Processing ${dates.length} days (${existingDateSet.size} already done) from ${allDates[0]} to ${allDates[allDates.length - 1]}`);
 
     const results: { date: string; itemCount: number; keywordCount: number }[] = [];
 
@@ -208,10 +236,16 @@ export async function POST() {
       console.log(`Processed ${dateStr}: ${dayItems.length} items, ${top75.length} keywords`);
     }
 
+    // Get updated count of days with keywords
+    const updatedExistingDates = await db
+      .selectDistinct({ date: dailyKeywords.date })
+      .from(dailyKeywords);
+
     return NextResponse.json({
       success: true,
       daysProcessed: results.length,
-      dateRange: { from: dates[0], to: dates[dates.length - 1] },
+      totalDaysWithKeywords: updatedExistingDates.length,
+      dateRange: { from: allDates[0], to: allDates[allDates.length - 1] },
       results,
     });
   } catch (error) {
