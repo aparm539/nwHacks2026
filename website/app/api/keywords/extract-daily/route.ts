@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
       // Take top 75
       const top75 = aggregated.slice(0, 75);
 
-      // Insert into database
+      // Insert into database (ignore conflicts from duplicate date+keyword)
       if (top75.length > 0) {
         await db.insert(dailyKeywords).values(
           top75.map((kw, idx) => ({
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
             variantCount: kw.count,
             itemCount: dayItems.length,
           }))
-        );
+        ).onConflictDoNothing();
       }
 
       results.push({
