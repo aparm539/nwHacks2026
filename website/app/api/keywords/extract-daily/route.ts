@@ -120,6 +120,8 @@ export async function POST(request: NextRequest) {
 
     // Filter to only dates that need processing
     let dates: string[];
+    const today = new Date().toISOString().split("T")[0];
+    
     if (forceReextract) {
       // Clear all existing keywords and stats, reprocess everything
       console.log("Force re-extraction: clearing existing daily keywords and stats...");
@@ -127,8 +129,9 @@ export async function POST(request: NextRequest) {
       await db.delete(keywordStats);
       dates = allDates;
     } else {
-      // Only process dates that don't have keywords yet
-      dates = allDates.filter(d => !existingDateSet.has(d));
+      // Process dates that don't have keywords yet, PLUS always re-process today
+      // This ensures lastItemTime stays up-to-date as new items arrive
+      dates = allDates.filter(d => !existingDateSet.has(d) || d === today);
     }
 
     if (dates.length === 0) {
@@ -218,8 +221,13 @@ export async function POST(request: NextRequest) {
       // Take top 75
       const top75 = aggregated.slice(0, 75);
 
-      // Insert into database (ignore conflicts from duplicate date+keyword)
+      // Insert into database
       if (top75.length > 0) {
+        // If re-processing today, delete existing keywords first
+        if (dateStr === today && existingDateSet.has(today)) {
+          await db.delete(dailyKeywords).where(sql`${dailyKeywords.date} = ${today}`);
+        }
+        
         await db.insert(dailyKeywords).values(
           top75.map((kw, idx) => ({
             date: dateStr,
@@ -232,22 +240,32 @@ export async function POST(request: NextRequest) {
         ).onConflictDoNothing();
 
         // Update keyword stats - find most recent item for each keyword
+        const isReprocessingToday = dateStr === today && existingDateSet.has(today);
+        
         for (const kw of top75) {
           try {
             // Search for items containing this keyword (case-insensitive)
             const keywordLower = kw.keyword.toLowerCase();
+            
+            // When re-processing today, search ALL items to get the true most recent
+            // Otherwise, search only within the current day's time range
             const matchingItem = await db
               .select({ id: items.id, time: items.time })
               .from(items)
               .where(
-                and(
-                  gte(items.time, startOfDay),
-                  lt(items.time, endOfDay),
-                  or(
-                    ilike(items.title, `%${keywordLower}%`),
-                    ilike(items.text, `%${keywordLower}%`)
-                  )
-                )
+                isReprocessingToday
+                  ? or(
+                      ilike(items.title, `%${keywordLower}%`),
+                      ilike(items.text, `%${keywordLower}%`)
+                    )
+                  : and(
+                      gte(items.time, startOfDay),
+                      lt(items.time, endOfDay),
+                      or(
+                        ilike(items.title, `%${keywordLower}%`),
+                        ilike(items.text, `%${keywordLower}%`)
+                      )
+                    )
               )
               .orderBy(desc(items.time))
               .limit(1);
@@ -256,29 +274,51 @@ export async function POST(request: NextRequest) {
               const itemTime = matchingItem[0].time;
               const itemId = matchingItem[0].id;
 
-              // Upsert into keywordStats
-              await db
-                .insert(keywordStats)
-                .values({
-                  keyword: kw.keyword,
-                  lastItemTime: itemTime,
-                  lastItemId: itemId,
-                  firstSeenTime: itemTime,
-                  totalDaysAppeared: 1,
-                })
-                .onConflictDoUpdate({
-                  target: keywordStats.keyword,
-                  set: {
-                    // Update lastItemTime only if this item is more recent
-                    lastItemTime: sql`GREATEST(${keywordStats.lastItemTime}, ${itemTime})`,
-                    lastItemId: sql`CASE WHEN ${itemTime} > ${keywordStats.lastItemTime} THEN ${itemId} ELSE ${keywordStats.lastItemId} END`,
-                    // Update firstSeenTime only if this item is older
-                    firstSeenTime: sql`LEAST(${keywordStats.firstSeenTime}, ${itemTime})`,
-                    // Increment days appeared
-                    totalDaysAppeared: sql`${keywordStats.totalDaysAppeared} + 1`,
-                    updatedAt: sql`NOW()`,
-                  },
-                });
+              if (isReprocessingToday) {
+                // When re-processing today, just update the lastItemTime without incrementing totalDaysAppeared
+                await db
+                  .insert(keywordStats)
+                  .values({
+                    keyword: kw.keyword,
+                    lastItemTime: itemTime,
+                    lastItemId: itemId,
+                    firstSeenTime: itemTime,
+                    totalDaysAppeared: 1,
+                  })
+                  .onConflictDoUpdate({
+                    target: keywordStats.keyword,
+                    set: {
+                      // Always update to the most recent item time
+                      lastItemTime: itemTime,
+                      lastItemId: itemId,
+                      updatedAt: sql`NOW()`,
+                    },
+                  });
+              } else {
+                // First time processing this day - full upsert with stats
+                await db
+                  .insert(keywordStats)
+                  .values({
+                    keyword: kw.keyword,
+                    lastItemTime: itemTime,
+                    lastItemId: itemId,
+                    firstSeenTime: itemTime,
+                    totalDaysAppeared: 1,
+                  })
+                  .onConflictDoUpdate({
+                    target: keywordStats.keyword,
+                    set: {
+                      // Update lastItemTime only if this item is more recent
+                      lastItemTime: sql`GREATEST(${keywordStats.lastItemTime}, ${itemTime})`,
+                      lastItemId: sql`CASE WHEN ${itemTime} > ${keywordStats.lastItemTime} THEN ${itemId} ELSE ${keywordStats.lastItemId} END`,
+                      // Update firstSeenTime only if this item is older
+                      firstSeenTime: sql`LEAST(${keywordStats.firstSeenTime}, ${itemTime})`,
+                      // Increment days appeared
+                      totalDaysAppeared: sql`${keywordStats.totalDaysAppeared} + 1`,
+                      updatedAt: sql`NOW()`,
+                    },
+                  });
+              }
             }
           } catch (statsError) {
             // Log but don't fail the whole extraction

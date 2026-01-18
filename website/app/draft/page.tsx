@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 
 // Types
@@ -28,6 +28,71 @@ const formatLastSeen = (unixTime: number | null): string => {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
   return `${Math.floor(diff / 604800)}w ago`;
+};
+
+// Helper to decode HTML entities from HN data
+const decodeHtmlEntities = (text: string): string => {
+  return text
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+};
+
+// Helper to extract a text snippet that includes keywords
+const extractTextWithKeywords = (
+  text: string,
+  keywords: string[],
+  maxLength: number = 300
+): { text: string; hasPrefix: boolean } => {
+  if (!text || text.length <= maxLength) {
+    return { text, hasPrefix: false };
+  }
+
+  // Clean the text first
+  const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  if (cleanText.length <= maxLength) {
+    return { text: cleanText, hasPrefix: false };
+  }
+
+  // If no keywords, just return the start
+  if (keywords.length === 0) {
+    return { text: cleanText.slice(0, maxLength), hasPrefix: false };
+  }
+
+  // Find the first keyword occurrence
+  const lowerText = cleanText.toLowerCase();
+  let firstKeywordIndex = -1;
+  let firstKeyword = '';
+
+  for (const keyword of keywords) {
+    const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+    const match = lowerText.match(pattern);
+    if (match && match.index !== undefined) {
+      if (firstKeywordIndex === -1 || match.index < firstKeywordIndex) {
+        firstKeywordIndex = match.index;
+        firstKeyword = keyword;
+      }
+    }
+  }
+
+  // If keyword is in the first part of text, just show from start
+  if (firstKeywordIndex === -1 || firstKeywordIndex < maxLength - 50) {
+    return { text: cleanText.slice(0, maxLength), hasPrefix: false };
+  }
+
+  // Otherwise, start from a bit before the keyword
+  const startIndex = Math.max(0, firstKeywordIndex - 50);
+  const snippet = cleanText.slice(startIndex, startIndex + maxLength);
+  
+  return { 
+    text: snippet, 
+    hasPrefix: startIndex > 0 
+  };
 };
 
 interface DailyTrends {
@@ -127,6 +192,8 @@ export default function DraftPage() {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const [countdown, setCountdown] = useState(POLL_INTERVAL_SECONDS);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const draftCompletedAtItemId = useRef<number | null>(null);
+  const seenItemIds = useRef<Set<number>>(new Set());
 
   // Calculate current picker based on snake draft order
   const getCurrentPicker = useCallback((pickIndex: number, players: Player[]): Player => {
@@ -317,13 +384,52 @@ export default function DraftPage() {
     }
   }, []);
 
-  // Fetch recent items
+  // Fetch recent items (triggers sync first to get new items from HN)
+  // Only shows items that arrived AFTER the draft was completed
   const fetchRecentItems = useCallback(async () => {
     try {
-      const res = await fetch("/api/items/recent?limit=30");
+      // First trigger an incremental sync to fetch new items from HN
+      const syncRes = await fetch("/api/sync/incremental", { method: "POST" });
+      const syncData = await syncRes.json();
+      
+      // If we have a sync run with items to fetch, process a chunk
+      if (syncData.success && syncData.syncRunId && syncData.totalItems > 0) {
+        await fetch(`/api/sync/chunk?syncRunId=${syncData.syncRunId}`, { method: "POST" });
+      }
+      
+      // Fetch recent items from our database
+      const res = await fetch("/api/items/recent?limit=50");
       const data = await res.json();
-      if (data.success && data.items) {
-        setRecentItems(data.items);
+      
+      if (data.success && data.items && data.items.length > 0) {
+        const items: RecentItem[] = data.items;
+        
+        // On first fetch after draft complete, set the cutoff to the highest item ID
+        // This means we start with an empty list and only show truly new items
+        if (draftCompletedAtItemId.current === null) {
+          const maxId = Math.max(...items.map((item: RecentItem) => item.id));
+          draftCompletedAtItemId.current = maxId;
+          seenItemIds.current = new Set(items.map((item: RecentItem) => item.id));
+          // Don't set any items yet - start empty
+          return;
+        }
+        
+        // Filter to only include items newer than the cutoff and not already seen
+        const newItems = items.filter((item: RecentItem) => 
+          item.id > draftCompletedAtItemId.current! && !seenItemIds.current.has(item.id)
+        );
+        
+        if (newItems.length > 0) {
+          // Add new item IDs to seen set
+          newItems.forEach((item: RecentItem) => seenItemIds.current.add(item.id));
+          
+          // Prepend new items to existing list (newest first)
+          setRecentItems(prev => {
+            const combined = [...newItems, ...prev];
+            // Keep only the most recent 100 items to prevent unbounded growth
+            return combined.slice(0, 100);
+          });
+        }
       }
     } catch {
       // Silent failure
@@ -444,6 +550,80 @@ export default function DraftPage() {
     });
   }, [allDraftedKeywords, getKeywordOwner]);
 
+  // Get players who scored from a specific item and their matched keywords
+  const getItemScorers = useCallback((item: RecentItem): { player: Player; keywords: string[]; points: number }[] => {
+    const textToSearch = [
+      item.title ? decodeHtmlEntities(item.title) : '',
+      item.text ? decodeHtmlEntities(item.text.replace(/<[^>]*>/g, ' ')) : ''
+    ].join(' ').toLowerCase();
+
+    const scorers: { player: Player; keywords: string[]; points: number }[] = [];
+
+    draftState.players.forEach(player => {
+      const matchedKeywords: string[] = [];
+      let totalPoints = 0;
+
+      draftState.rosters[player.id]?.forEach(keyword => {
+        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`\\b${escapedKeyword}\\b`, 'gi');
+        const matches = textToSearch.match(pattern);
+        if (matches) {
+          matchedKeywords.push(keyword);
+          totalPoints += matches.length;
+        }
+      });
+
+      if (matchedKeywords.length > 0) {
+        scorers.push({ player, keywords: matchedKeywords, points: totalPoints });
+      }
+    });
+
+    // Sort by points descending, human player first if tied
+    return scorers.sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (a.player.isHuman) return -1;
+      if (b.player.isHuman) return 1;
+      return 0;
+    });
+  }, [draftState.players, draftState.rosters]);
+
+  // Calculate points for each player based on keyword matches in recent items
+  const playerPoints = useMemo(() => {
+    const points: Record<number, { total: number; byKeyword: Record<string, number> }> = {};
+    
+    // Initialize points for all players
+    draftState.players.forEach(player => {
+      points[player.id] = { total: 0, byKeyword: {} };
+      draftState.rosters[player.id]?.forEach(keyword => {
+        points[player.id].byKeyword[keyword] = 0;
+      });
+    });
+
+    // Count keyword matches in each recent item
+    recentItems.forEach(item => {
+      const textToSearch = [
+        item.title ? decodeHtmlEntities(item.title) : '',
+        item.text ? decodeHtmlEntities(item.text.replace(/<[^>]*>/g, ' ')) : ''
+      ].join(' ').toLowerCase();
+
+      draftState.players.forEach(player => {
+        draftState.rosters[player.id]?.forEach(keyword => {
+          // Create a word boundary regex for the keyword
+          const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const pattern = new RegExp(`\\b${escapedKeyword}\\b`, 'gi');
+          const matches = textToSearch.match(pattern);
+          if (matches) {
+            const matchCount = matches.length;
+            points[player.id].byKeyword[keyword] += matchCount;
+            points[player.id].total += matchCount;
+          }
+        });
+      });
+    });
+
+    return points;
+  }, [draftState.players, draftState.rosters, recentItems]);
+
   // Filter and sort keywords
   const displayKeywords = draftState.availableKeywords
     .filter(k => k.keyword.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -494,6 +674,9 @@ export default function DraftPage() {
       pickHistory: [],
     });
     setSearchQuery("");
+    setRecentItems([]);
+    draftCompletedAtItemId.current = null;
+    seenItemIds.current = new Set();
   };
 
   // ============ SETUP PHASE ============
@@ -710,18 +893,30 @@ export default function DraftPage() {
             <div className="p-4 space-y-4">
               {/* Human Player Card - Highlighted */}
               <div className="rounded-xl border-2 border-emerald-500 bg-[#0d1117] p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className={`w-4 h-4 rounded-full ${humanPlayer.color}`} />
-                  <h3 className="text-base font-semibold text-white">{humanPlayer.name}</h3>
-                  <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">YOU</span>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full ${humanPlayer.color}`} />
+                    <h3 className="text-base font-semibold text-white">{humanPlayer.name}</h3>
+                    <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">YOU</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/50 rounded-lg px-3 py-1">
+                    <span className="text-lg font-bold text-emerald-400">{playerPoints[humanPlayer.id]?.total || 0}</span>
+                    <span className="text-xs text-emerald-400/70">pts</span>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   {humanRoster.map((keyword) => {
                     const pick = draftState.pickHistory.find(p => p.keyword === keyword);
+                    const keywordPoints = playerPoints[humanPlayer.id]?.byKeyword[keyword] || 0;
                     return (
                       <div key={keyword} className="flex items-center justify-between bg-[#161b22] rounded-lg px-3 py-1.5">
                         <span className="font-medium text-white text-sm">{keyword}</span>
-                        <span className="text-xs text-slate-400">#{pick?.rank}</span>
+                        <div className="flex items-center gap-2">
+                          {keywordPoints > 0 && (
+                            <span className="text-xs font-medium text-emerald-400">+{keywordPoints}</span>
+                          )}
+                          <span className="text-xs text-slate-400">#{pick?.rank}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -731,17 +926,29 @@ export default function DraftPage() {
               {/* AI Player Cards */}
               {draftState.players.filter(p => !p.isHuman).map((player) => (
                 <div key={player.id} className="rounded-xl border border-slate-800 bg-[#0d1117] p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-4 h-4 rounded-full ${player.color}`} />
-                    <h3 className="text-base font-semibold text-slate-300">{player.name}</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-4 h-4 rounded-full ${player.color}`} />
+                      <h3 className="text-base font-semibold text-slate-300">{player.name}</h3>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1">
+                      <span className="text-lg font-bold text-slate-300">{playerPoints[player.id]?.total || 0}</span>
+                      <span className="text-xs text-slate-500">pts</span>
+                    </div>
                   </div>
                   <div className="space-y-1.5">
                     {draftState.rosters[player.id].map((keyword) => {
                       const pick = draftState.pickHistory.find(p => p.keyword === keyword);
+                      const keywordPoints = playerPoints[player.id]?.byKeyword[keyword] || 0;
                       return (
                         <div key={keyword} className="flex items-center justify-between bg-[#161b22] rounded-lg px-3 py-1.5">
                           <span className="font-medium text-slate-300 text-sm">{keyword}</span>
-                          <span className="text-xs text-slate-500">#{pick?.rank}</span>
+                          <div className="flex items-center gap-2">
+                            {keywordPoints > 0 && (
+                              <span className="text-xs font-medium text-slate-400">+{keywordPoints}</span>
+                            )}
+                            <span className="text-xs text-slate-500">#{pick?.rank}</span>
+                          </div>
                         </div>
                       );
                     })}
@@ -751,57 +958,110 @@ export default function DraftPage() {
             </div>
           </div>
 
-          {/* Middle - Recent Items Feed */}
+          {/* Middle - New Items Feed */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-800 bg-[#161b22]">
-              <h3 className="text-lg font-semibold text-white">Recent Posts & Comments</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">New Posts & Comments</h3>
+                <span className="text-sm text-slate-500">{recentItems.length} new</span>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {recentItems.length === 0 ? (
-                  <div className="col-span-full text-center text-slate-500 py-8">
-                    Loading recent items...
+                  <div className="col-span-full text-center py-12">
+                    <div className="text-slate-400 mb-2">Waiting for new posts...</div>
+                    <div className="text-sm text-slate-600">
+                      New posts and comments will appear here as they are made on Hacker News.
+                      <br />
+                      Points are earned when your keywords appear in new content.
+                    </div>
                   </div>
                 ) : (
-                  recentItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-lg border border-slate-800 bg-[#161b22] p-4 hover:border-slate-700 transition-colors"
-                    >
-                      <div className="flex items-center gap-2 mb-2 text-xs text-slate-500">
-                        <span className={`px-1.5 py-0.5 rounded ${
-                          item.type === "story" ? "bg-orange-900/50 text-orange-400" : "bg-slate-800 text-slate-400"
-                        }`}>
-                          {item.type}
-                        </span>
-                        {item.by && <span>by {item.by}</span>}
-                        <span>{formatLastSeen(item.time)}</span>
-                        {item.score !== null && item.score > 0 && (
-                          <span className="text-emerald-400">{item.score} pts</span>
+                  recentItems.map((item) => {
+                    const scorers = getItemScorers(item);
+                    const hasScorers = scorers.length > 0;
+                    
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-lg border p-4 transition-colors ${
+                          hasScorers 
+                            ? "border-emerald-700/50 bg-[#161b22] ring-1 ring-emerald-500/20" 
+                            : "border-slate-800 bg-[#161b22] hover:border-slate-700"
+                        }`}
+                      >
+                        {/* Player score tags */}
+                        {hasScorers && (
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {scorers.map(({ player, keywords, points }) => (
+                              <div
+                                key={player.id}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
+                                  player.isHuman
+                                    ? "bg-emerald-600/30 border border-emerald-500/50"
+                                    : "bg-slate-800 border border-slate-700"
+                                }`}
+                              >
+                                <div className={`w-2 h-2 rounded-full ${player.color}`} />
+                                <span className={player.isHuman ? "text-emerald-300 font-medium" : "text-slate-300"}>
+                                  {player.isHuman ? "You" : player.name}
+                                </span>
+                                <span className={player.isHuman ? "text-emerald-400 font-bold" : "text-slate-400 font-medium"}>
+                                  +{points}
+                                </span>
+                                <span className="text-slate-500">
+                                  ({keywords.join(", ")})
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        <div className="flex items-center gap-2 mb-2 text-xs text-slate-500">
+                          <span className={`px-1.5 py-0.5 rounded ${
+                            item.type === "story" ? "bg-orange-900/50 text-orange-400" : "bg-slate-800 text-slate-400"
+                          }`}>
+                            {item.type}
+                          </span>
+                          {item.by && <span>by {item.by}</span>}
+                          <span>{formatLastSeen(item.time)}</span>
+                          {item.score !== null && item.score > 0 && (
+                            <span className="text-emerald-400">{item.score} pts</span>
+                          )}
+                        </div>
+                        {item.title && (
+                          <div className="text-sm font-medium text-white mb-1">
+                            {highlightKeywords(decodeHtmlEntities(item.title))}
+                          </div>
+                        )}
+                        {item.text && (() => {
+                          const matchedKeywords = scorers.flatMap(s => s.keywords);
+                          const { text: snippetText, hasPrefix } = extractTextWithKeywords(
+                            item.text,
+                            matchedKeywords,
+                            300
+                          );
+                          return (
+                            <div className="text-sm text-slate-400 line-clamp-3">
+                              {hasPrefix && <span className="text-slate-500">... </span>}
+                              {highlightKeywords(decodeHtmlEntities(snippetText))}
+                            </div>
+                          );
+                        })()}
+                        {item.url && (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-400 hover:underline mt-1 block truncate"
+                          >
+                            {item.url}
+                          </a>
                         )}
                       </div>
-                      {item.title && (
-                        <div className="text-sm font-medium text-white mb-1">
-                          {highlightKeywords(item.title)}
-                        </div>
-                      )}
-                      {item.text && (
-                        <div className="text-sm text-slate-400 line-clamp-3">
-                          {highlightKeywords(item.text.replace(/<[^>]*>/g, ' ').slice(0, 300))}
-                        </div>
-                      )}
-                      {item.url && (
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:underline mt-1 block truncate"
-                        >
-                          {item.url}
-                        </a>
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
