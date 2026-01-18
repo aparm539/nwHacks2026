@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { items, dailyKeywords, keywordStats } from "@/db/schema";
 import { and, gte, lt, inArray, sql, desc, or, ilike } from "drizzle-orm";
-import { isBlacklisted } from "@/lib/keyword-blacklist";
+import { isStemBlacklisted } from "@/lib/keyword-blacklist";
 
 const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";
 
 interface KeywordResult {
   keyword: string;
   score: number;
+  stemmed: string;
 }
 
 interface KeywordExtractionResponse {
@@ -19,6 +20,7 @@ interface KeywordExtractionResponse {
 
 interface AggregatedKeyword {
   keyword: string;
+  stem: string;
   avgScore: number;
   count: number;
   variants: string[];
@@ -38,39 +40,46 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-// Group keywords by root term
+// Group keywords by stem, selecting shortest variant as canonical
 function aggregateKeywords(keywords: KeywordResult[]): AggregatedKeyword[] {
-  const groups: Record<string, { keywords: string[]; totalScore: number; count: number }> = {};
+  const groups: Record<string, { 
+    keywords: string[]; 
+    totalScore: number; 
+    count: number;
+    shortestKeyword: string;
+  }> = {};
   
   for (const kw of keywords) {
-    // Skip blacklisted keywords
-    if (isBlacklisted(kw.keyword)) {
+    // Skip blacklisted keywords (using stem-based blacklist check)
+    if (isStemBlacklisted(kw.stemmed)) {
       continue;
     }
     
-    const lowerKeyword = kw.keyword.toLowerCase();
+    // Use the stemmed version from Python service as the group key
+    const stem = kw.stemmed;
     
-    const rootTerms = ["claude", "rust", "python", "agent", "api", "openai", "gpt", "llm", "ai", "machine learning", "deep learning", "javascript", "typescript", "react", "node", "docker", "kubernetes", "aws", "google", "microsoft", "apple", "linux", "github", "open source", "Adams", "user", "Windows"];
-    let matchedRoot = rootTerms.find(root => lowerKeyword.includes(root));
-    
-    if (!matchedRoot) matchedRoot = kw.keyword;
-    
-    // Also check if the root term is blacklisted
-    if (isBlacklisted(matchedRoot)) {
-      continue;
+    if (!groups[stem]) {
+      groups[stem] = { 
+        keywords: [], 
+        totalScore: 0, 
+        count: 0,
+        shortestKeyword: kw.keyword 
+      };
     }
+    groups[stem].keywords.push(kw.keyword);
+    groups[stem].totalScore += kw.score;
+    groups[stem].count++;
     
-    if (!groups[matchedRoot]) {
-      groups[matchedRoot] = { keywords: [], totalScore: 0, count: 0 };
+    // Keep the shortest variant as the canonical display keyword
+    if (kw.keyword.length < groups[stem].shortestKeyword.length) {
+      groups[stem].shortestKeyword = kw.keyword;
     }
-    groups[matchedRoot].keywords.push(kw.keyword);
-    groups[matchedRoot].totalScore += kw.score;
-    groups[matchedRoot].count++;
   }
   
   return Object.entries(groups)
-    .map(([root, data]) => ({
-      keyword: root,
+    .map(([stem, data]) => ({
+      keyword: data.shortestKeyword,
+      stem: stem,
       avgScore: data.totalScore / data.count,
       count: data.count,
       variants: data.keywords,
@@ -232,6 +241,7 @@ export async function POST(request: NextRequest) {
           top75.map((kw, idx) => ({
             date: dateStr,
             keyword: kw.keyword,
+            stemmedKeyword: kw.stem,
             score: kw.avgScore,
             rank: idx + 1,
             variantCount: kw.count,
@@ -280,6 +290,7 @@ export async function POST(request: NextRequest) {
                   .insert(keywordStats)
                   .values({
                     keyword: kw.keyword,
+                    stemmedKeyword: kw.stem,
                     lastItemTime: itemTime,
                     lastItemId: itemId,
                     firstSeenTime: itemTime,
@@ -300,6 +311,7 @@ export async function POST(request: NextRequest) {
                   .insert(keywordStats)
                   .values({
                     keyword: kw.keyword,
+                    stemmedKeyword: kw.stem,
                     lastItemTime: itemTime,
                     lastItemId: itemId,
                     firstSeenTime: itemTime,

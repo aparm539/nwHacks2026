@@ -8,6 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import yake
 from typing import Optional
+from nltk.stem.snowball import SnowballStemmer
+
+# Initialize Snowball stemmer for English
+stemmer = SnowballStemmer("english")
+
+
+def stem_phrase(phrase: str) -> str:
+    """Stem each word in a phrase and rejoin."""
+    words = phrase.lower().split()
+    return " ".join(stemmer.stem(word) for word in words)
 
 app = FastAPI(
     title="Keyword Extraction Service",
@@ -38,6 +48,7 @@ class Keyword(BaseModel):
     """A single extracted keyword with its score."""
     keyword: str
     score: float
+    stemmed: str
 
 
 class ExtractionResponse(BaseModel):
@@ -84,9 +95,13 @@ async def extract_keywords(request: ExtractionRequest):
         # Extract keywords
         keywords_raw = kw_extractor.extract_keywords(request.text)
         
-        # Format response
+        # Format response with stemmed versions
         keywords = [
-            Keyword(keyword=kw, score=round(score, 6))
+            Keyword(
+                keyword=kw,
+                score=round(score, 6),
+                stemmed=stem_phrase(kw)
+            )
             for kw, score in keywords_raw
         ]
         

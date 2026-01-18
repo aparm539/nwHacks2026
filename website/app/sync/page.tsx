@@ -8,6 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BlacklistTab } from "@/components/blacklist-tab";
 
 interface SyncRun {
   id: number;
@@ -460,188 +462,201 @@ export default function SyncDashboard() {
           </div>
         </div>
 
-        {/* Error Display */}
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertDescription className="flex items-center justify-between">
-              {error}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setError(null)}
-              >
-                Dismiss
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
+        <Tabs defaultValue="sync" className="space-y-6">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="sync">Sync</TabsTrigger>
+            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+          </TabsList>
 
-        {/* Current Sync Progress */}
-        {currentProgress && !currentProgress.done && (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Current Sync Progress</CardTitle>
-              <CardDescription>
-                {formatNumber(currentProgress.itemsFetched)} /{" "}
-                {formatNumber(currentProgress.totalItems)} items ({currentProgress.progress}%)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Progress value={currentProgress.progress} className="mb-4" />
-
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Current ID:</span>{" "}
-                  <span className="font-mono">
-                    {formatNumber(currentProgress.lastFetchedItem)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Target ID:</span>{" "}
-                  <span className="font-mono">
-                    {formatNumber(currentProgress.targetEndItem)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Remaining:</span>{" "}
-                  <span className="font-mono">
-                    {formatNumber(
-                      currentProgress.lastFetchedItem - currentProgress.targetEndItem
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              {/* Controls */}
-              <div className="flex gap-4">
-                {syncing ? (
-                  <Button onClick={pauseSync} variant="secondary">
-                    Pause Sync
-                  </Button>
-                ) : (
+          <TabsContent value="sync" className="space-y-6">
+            {/* Error Display */}
+            {error && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertDescription className="flex items-center justify-between">
+                  {error}
                   <Button
-                    onClick={() => {
-                      setSyncing(true);
-                      setAutoSync(true);
-                      processChunk(currentProgress.syncRunId);
-                    }}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setError(null)}
                   >
-                    Continue Sync
+                    Dismiss
                   </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Start New Sync Buttons */}
-        {!currentProgress || currentProgress.done ? (
-          <div className="mb-8">
-            <div className="flex gap-4 mb-4 items-center">
-              <Button
-                onClick={() => startSync("initial")}
-                disabled={syncing || (itemCount !== null && itemCount > 0)}
-                variant="default"
-                size="lg"
-                title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
-              >
-                {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
-              </Button>
-              <Button
-                onClick={() => startSync("incremental")}
-                disabled={syncing}
-                variant="default"
-                size="lg"
-                title="Fetch new items since last sync"
-              >
-                {syncing ? "Starting..." : "Incremental Sync"}
-              </Button>
-              <Button
-                onClick={testCronSync}
-                disabled={cronTesting}
-                variant="outline"
-                size="lg"
-                title="Test the cron sync endpoint (5-minute sync simulation)"
-              >
-                {cronTesting ? "Testing..." : "Test Cron"}
-              </Button>
-              {itemCount !== null && (
-                <span className="text-sm text-muted-foreground">
-                  {itemCount.toLocaleString()} items in database
-                </span>
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {/* Sync History Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Sync History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="p-8 text-center text-muted-foreground">Loading...</div>
-            ) : runs.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">
-                No sync runs yet. Start your first sync!
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Progress</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Range</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Completed</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {runs.map((run) => (
-                      <TableRow key={run.id}>
-                        <TableCell className="font-mono">{run.id}</TableCell>
-                        <TableCell>
-                          <Badge variant={getStatusVariant(run.status)}>
-                            {run.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="w-24">
-                              <Progress value={run.progress} />
-                            </div>
-                            <span className="text-sm text-muted-foreground">
-                              {run.progress}%
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {formatNumber(run.itemsFetched)} /{" "}
-                          {formatNumber(run.totalItems)}
-                        </TableCell>
-                        <TableCell className="text-sm font-mono text-muted-foreground">
-                          {formatNumber(run.targetEndItem)} →{" "}
-                          {formatNumber(run.startMaxItem)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(run.startedAt)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(run.completedAt)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                </AlertDescription>
+              </Alert>
             )}
-          </CardContent>
-        </Card>
+
+            {/* Current Sync Progress */}
+            {currentProgress && !currentProgress.done && (
+              <Card className="mb-8">
+                <CardHeader>
+                  <CardTitle>Current Sync Progress</CardTitle>
+                  <CardDescription>
+                    {formatNumber(currentProgress.itemsFetched)} /{" "}
+                    {formatNumber(currentProgress.totalItems)} items ({currentProgress.progress}%)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Progress value={currentProgress.progress} className="mb-4" />
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Current ID:</span>{" "}
+                      <span className="font-mono">
+                        {formatNumber(currentProgress.lastFetchedItem)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Target ID:</span>{" "}
+                      <span className="font-mono">
+                        {formatNumber(currentProgress.targetEndItem)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Remaining:</span>{" "}
+                      <span className="font-mono">
+                        {formatNumber(
+                          currentProgress.lastFetchedItem - currentProgress.targetEndItem
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="flex gap-4">
+                    {syncing ? (
+                      <Button onClick={pauseSync} variant="secondary">
+                        Pause Sync
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={() => {
+                          setSyncing(true);
+                          setAutoSync(true);
+                          processChunk(currentProgress.syncRunId);
+                        }}
+                      >
+                        Continue Sync
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Start New Sync Buttons */}
+            {!currentProgress || currentProgress.done ? (
+              <div className="mb-8">
+                <div className="flex gap-4 mb-4 items-center">
+                  <Button
+                    onClick={() => startSync("initial")}
+                    disabled={syncing || (itemCount !== null && itemCount > 0)}
+                    variant="default"
+                    size="lg"
+                    title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
+                  >
+                    {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
+                  </Button>
+                  <Button
+                    onClick={() => startSync("incremental")}
+                    disabled={syncing}
+                    variant="default"
+                    size="lg"
+                    title="Fetch new items since last sync"
+                  >
+                    {syncing ? "Starting..." : "Incremental Sync"}
+                  </Button>
+                  <Button
+                    onClick={testCronSync}
+                    disabled={cronTesting}
+                    variant="outline"
+                    size="lg"
+                    title="Test the cron sync endpoint (5-minute sync simulation)"
+                  >
+                    {cronTesting ? "Testing..." : "Test Cron"}
+                  </Button>
+                  {itemCount !== null && (
+                    <span className="text-sm text-muted-foreground">
+                      {itemCount.toLocaleString()} items in database
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Sync History Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Sync History</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="p-8 text-center text-muted-foreground">Loading...</div>
+                ) : runs.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground">
+                    No sync runs yet. Start your first sync!
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Progress</TableHead>
+                          <TableHead>Items</TableHead>
+                          <TableHead>Range</TableHead>
+                          <TableHead>Started</TableHead>
+                          <TableHead>Completed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {runs.map((run) => (
+                          <TableRow key={run.id}>
+                            <TableCell className="font-mono">{run.id}</TableCell>
+                            <TableCell>
+                              <Badge variant={getStatusVariant(run.status)}>
+                                {run.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <div className="w-24">
+                                  <Progress value={run.progress} />
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {run.progress}%
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatNumber(run.itemsFetched)} /{" "}
+                              {formatNumber(run.totalItems)}
+                            </TableCell>
+                            <TableCell className="text-sm font-mono text-muted-foreground">
+                              {formatNumber(run.targetEndItem)} →{" "}
+                              {formatNumber(run.startMaxItem)}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {formatDate(run.startedAt)}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {formatDate(run.completedAt)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="blacklist">
+            <BlacklistTab />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
