@@ -102,20 +102,6 @@ export default function Home() {
                   className="object-contain"
                 />
               </div>
-              <nav className="flex items-center gap-4">
-                <Link
-                  href="/sync"
-                  className="text-sm text-slate-400 hover:text-white transition-colors"
-                >
-                  Sync
-                </Link>
-                <Link
-                  href="/keywords"
-                  className="text-sm text-slate-400 hover:text-white transition-colors"
-                >
-                  Keywords
-                </Link>
-              </nav>
             </div>
             <Link
               href="/draft"
