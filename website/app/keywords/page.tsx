@@ -364,12 +364,6 @@ export default function KeywordTrendsPage() {
             <div className="mb-4 text-4xl">⚠️</div>
             <h2 className="mb-2 text-xl font-semibold text-red-400">Error Loading Trends</h2>
             <p className="mb-4 text-slate-400">{error}</p>
-            <button
-              onClick={fetchTrends}
-              className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 transition-colors"
-            >
-              Try Again
-            </button>
           </div>
         </main>
       </div>
