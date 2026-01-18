@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { items, keywordExtractions, keywords as keywordsTable } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
+import { isBlacklisted } from "@/lib/keyword-blacklist";
 
-const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://localhost:8000";
+const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";
 
 interface KeywordResult {
   keyword: string;
@@ -30,30 +31,85 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+interface AggregatedKeyword {
+  keyword: string;
+  avgScore: number;
+  count: number;
+  variants: string[];
+}
+
+// Group keywords by root term (e.g., "claude")
+function aggregateKeywords(keywords: { keyword: string; score: number }[]): AggregatedKeyword[] {
+  const groups: Record<string, { keywords: string[]; totalScore: number; count: number }> = {};
+  
+  for (const kw of keywords) {
+    // Skip blacklisted keywords
+    if (isBlacklisted(kw.keyword)) {
+      continue;
+    }
+    
+    const lowerKeyword = kw.keyword.toLowerCase();
+    
+    // Find root terms to group by (you can customize this list)
+    const rootTerms = ["claude", "rust", "python", "agent", "api", "openai", "gpt", "llm", "ai", "machine learning", "deep learning", "javascript", "typescript", "react", "node", "docker", "kubernetes", "aws", "google", "microsoft", "apple", "linux", "github", "open source", "Adams", "user", "Windows"];
+    let matchedRoot = rootTerms.find(root => lowerKeyword.includes(root));
+    
+    if (!matchedRoot) matchedRoot = kw.keyword; // Keep as-is if no match
+    
+    // Also check if the root term is blacklisted
+    if (isBlacklisted(matchedRoot)) {
+      continue;
+    }
+    
+    if (!groups[matchedRoot]) {
+      groups[matchedRoot] = { keywords: [], totalScore: 0, count: 0 };
+    }
+    groups[matchedRoot].keywords.push(kw.keyword);
+    groups[matchedRoot].totalScore += kw.score;
+    groups[matchedRoot].count++;
+  }
+  
+  // Return aggregated results sorted by count (most occurrences first)
+  return Object.entries(groups)
+    .map(([root, data]) => ({
+      keyword: root,
+      avgScore: data.totalScore / data.count,
+      count: data.count,
+      variants: data.keywords,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export async function POST() {
   try {
-    // Fetch ALL stories from the database
-    const allStories = await db
+    // Clear existing keyword data
+    console.log("Clearing existing keyword data...");
+    await db.delete(keywordsTable);
+    await db.delete(keywordExtractions);
+    console.log("Cleared existing data");
+
+    // Fetch ALL stories and comments from the database
+    const allItems = await db
       .select({
         id: items.id,
         title: items.title,
         text: items.text,
       })
       .from(items)
-      .where(eq(items.type, "story"));
+      .where(inArray(items.type, ["story", "comment"]));
 
-    if (allStories.length === 0) {
+    if (allItems.length === 0) {
       return NextResponse.json(
-        { error: "No stories found in database" },
+        { error: "No stories or comments found in database" },
         { status: 404 }
       );
     }
 
-    console.log(`Found ${allStories.length} stories to analyze`);
+    console.log(`Found ${allItems.length} items (stories + comments) to analyze`);
 
     // Combine all text content from stories
     const textParts: string[] = [];
-    for (const story of allStories) {
+    for (const story of allItems) {
       if (story.title) {
         textParts.push(stripHtml(story.title));
       }
@@ -73,47 +129,60 @@ export async function POST() {
     }
 
     // Call the keyword extraction service with more keywords for full analysis
-    const keywordResponse = await fetch(`${KEYWORD_SERVICE_URL}/extract`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: combinedText,
-        max_keywords: 5000, // Get more keywords for full database analysis
-        language: "en",
-        n_gram_max: 3,
-      }),
-    });
+    let keywordResponse;
+    try {
+      keywordResponse = await fetch(`${KEYWORD_SERVICE_URL}/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: combinedText,
+          max_keywords: 200, // Get keywords for full database analysis
+          language: "en",
+          n_gram_max: 3,
+        }),
+      });
+    } catch (fetchError) {
+      console.error("Fetch error:", fetchError);
+      return NextResponse.json(
+        { error: `Failed to connect to keyword service at ${KEYWORD_SERVICE_URL}: ${fetchError}` },
+        { status: 502 }
+      );
+    }
 
     if (!keywordResponse.ok) {
       const errorText = await keywordResponse.text();
       console.error("Keyword service error:", errorText);
       return NextResponse.json(
-        { error: "Failed to extract keywords from service" },
+        { error: `Failed to extract keywords from service: ${errorText}` },
         { status: 502 }
       );
     }
 
     const keywordData: KeywordExtractionResponse = await keywordResponse.json();
-    console.log(`Extracted ${keywordData.keywords.length} keywords`);
+    console.log(`Extracted ${keywordData.keywords.length} raw keywords`);
+
+    // Aggregate similar keywords
+    const aggregatedKeywords = aggregateKeywords(keywordData.keywords);
+    console.log(`Aggregated into ${aggregatedKeywords.length} unique keywords`);
 
     // Save extraction to database
     const [extraction] = await db
       .insert(keywordExtractions)
       .values({
-        itemCount: allStories.length,
+        itemCount: allItems.length,
         textLength: combinedText.length,
         filterDate: "all", // Mark as full database extraction
         itemIds: null, // Too many to store
       })
       .returning();
 
-    // Save keywords to database
-    if (keywordData.keywords.length > 0) {
+    // Save aggregated keywords to database
+    if (aggregatedKeywords.length > 0) {
       await db.insert(keywordsTable).values(
-        keywordData.keywords.map((kw, idx) => ({
+        aggregatedKeywords.map((kw, idx) => ({
           extractionId: extraction.id,
           keyword: kw.keyword,
-          score: kw.score,
+          score: kw.avgScore,
           rank: idx + 1,
         }))
       );
@@ -122,10 +191,11 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       extractionId: extraction.id,
-      storiesAnalyzed: allStories.length,
+      itemsAnalyzed: allItems.length,
       combinedTextLength: combinedText.length,
-      keywordsExtracted: keywordData.keywords.length,
-      keywords: keywordData.keywords,
+      rawKeywordsExtracted: keywordData.keywords.length,
+      aggregatedKeywords: aggregatedKeywords.length,
+      keywords: aggregatedKeywords,
     });
   } catch (error) {
     console.error("Extract-all error:", error);

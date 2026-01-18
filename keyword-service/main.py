@@ -28,7 +28,7 @@ app.add_middleware(
 class ExtractionRequest(BaseModel):
     """Request body for keyword extraction."""
     text: str = Field(..., min_length=1, description="Text to extract keywords from")
-    max_keywords: Optional[int] = Field(10, ge=1, le=50, description="Maximum number of keywords to return")
+    max_keywords: Optional[int] = Field(10, ge=1, le=500, description="Maximum number of keywords to return")
     language: Optional[str] = Field("en", description="Language code (e.g., 'en', 'fr', 'de')")
     deduplication_threshold: Optional[float] = Field(0.9, ge=0.0, le=1.0, description="Threshold for deduplication")
     n_gram_max: Optional[int] = Field(3, ge=1, le=5, description="Maximum n-gram size")

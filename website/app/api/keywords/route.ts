@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { items, keywordExtractions, keywords as keywordsTable } from "@/db/schema";
 import { inArray, and, gte, lt, eq } from "drizzle-orm";
 
-const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://localhost:8000";
+const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";
 
 interface Keyword {
   keyword: string;
