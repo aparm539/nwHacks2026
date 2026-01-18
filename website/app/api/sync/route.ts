@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { syncRuns } from "@/db/schema";
-import { desc, eq, or } from "drizzle-orm";
+import { items, syncRuns } from "@/db/schema";
+import { desc, eq, or, max } from "drizzle-orm";
 import {
   fetchMaxItem,
   findItemIdAtTimestamp,
@@ -60,8 +60,16 @@ export async function POST(): Promise<NextResponse<StartSyncResult>> {
       });
     }
 
-    // Get the current max item ID from HN
-    const maxItem = await fetchMaxItem();
+    // Start from the latest item we already have, but always consult HN for the true max
+    const [latestItem] = await db
+      .select({ maxId: max(items.id) })
+      .from(items)
+      .limit(1);
+
+    const remoteMaxItem = await fetchMaxItem();
+    const startMaxItem = latestItem?.maxId
+      ? Math.max(latestItem.maxId, remoteMaxItem)
+      : remoteMaxItem;
 
     // Calculate one week ago timestamp
     const now = Math.floor(Date.now() / 1000);
@@ -69,19 +77,19 @@ export async function POST(): Promise<NextResponse<StartSyncResult>> {
 
     // Binary search to find the item ID at the one-week boundary
     console.log("Finding item ID at one-week boundary...");
-    const targetEndItem = await findItemIdAtTimestamp(oneWeekAgo, maxItem);
+    const targetEndItem = await findItemIdAtTimestamp(oneWeekAgo, remoteMaxItem);
     console.log(`Target end item: ${targetEndItem}`);
 
-    const totalItems = maxItem - targetEndItem;
+    const totalItems = Math.max(0, startMaxItem - targetEndItem);
 
     // Create a new sync run
     const [syncRun] = await db
       .insert(syncRuns)
       .values({
-        startMaxItem: maxItem,
+        startMaxItem,
         targetEndItem,
         totalItems,
-        lastFetchedItem: maxItem,
+        lastFetchedItem: startMaxItem,
         itemsFetched: 0,
         status: "running",
       })
@@ -90,7 +98,7 @@ export async function POST(): Promise<NextResponse<StartSyncResult>> {
     return NextResponse.json({
       success: true,
       syncRunId: syncRun.id,
-      startMaxItem: maxItem,
+      startMaxItem,
       targetEndItem,
       totalItems,
       resumed: false,

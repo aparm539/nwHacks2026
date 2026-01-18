@@ -287,9 +287,6 @@ export default function SyncDashboard() {
         {/* Current Sync Progress */}
         {currentProgress && !currentProgress.done && (
           <div className="mb-8 p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-4">Current Sync Progress</h2>
-
-            {/* Progress Bar */}
             <div className="mb-4">
               <div className="flex justify-between text-sm text-gray-600 mb-1">
                 <span>Progress: {currentProgress.progress}%</span>
