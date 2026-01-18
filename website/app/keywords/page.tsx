@@ -1,0 +1,267 @@
+"use client";
+
+import { useState, useEffect } from "react";
+
+interface KeywordTrend {
+  keyword: string;
+  currentRank: number;
+  previousRank: number | null;
+  rankChange: number | null;
+  currentScore: number;
+  variantCount: number;
+  trend: "up" | "down" | "new" | "stable";
+}
+
+interface DailyTrends {
+  date: string;
+  itemCount: number;
+  keywords: KeywordTrend[];
+}
+
+interface WeeklyMover {
+  keyword: string;
+  currentRank: number;
+  startRank: number | null;
+  weeklyChange: number | null;
+  isNew: boolean;
+}
+
+interface TrendsData {
+  success: boolean;
+  dateRange: { from: string; to: string };
+  totalDays: number;
+  dailyTrends: DailyTrends[];
+  topGainers: WeeklyMover[];
+  topLosers: WeeklyMover[];
+  newThisWeek: WeeklyMover[];
+}
+
+export default function KeywordTrendsPage() {
+  const [data, setData] = useState<TrendsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/keywords/trends")
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.error) {
+          setError(json.error);
+        } else {
+          setData(json);
+          // Select the latest date by default
+          if (json.dailyTrends?.length > 0) {
+            setSelectedDate(json.dailyTrends[json.dailyTrends.length - 1].date);
+          }
+        }
+      })
+      .catch((err) => setError(String(err)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr + "T00:00:00");
+    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+
+  const getTrendIcon = (trend: string) => {
+    switch (trend) {
+      case "up": return "📈";
+      case "down": return "📉";
+      case "new": return "🆕";
+      default: return "➖";
+    }
+  };
+
+  const getTrendColor = (trend: string) => {
+    switch (trend) {
+      case "up": return "text-emerald-400";
+      case "down": return "text-red-400";
+      case "new": return "text-cyan-400";
+      default: return "text-slate-400";
+    }
+  };
+
+  const getChangeDisplay = (change: number | null, isNew: boolean) => {
+    if (isNew) return <span className="text-cyan-400">NEW</span>;
+    if (change === null) return <span className="text-slate-500">-</span>;
+    if (change > 0) return <span className="text-emerald-400">+{change}</span>;
+    if (change < 0) return <span className="text-red-400">{change}</span>;
+    return <span className="text-slate-400">0</span>;
+  };
+
+  const selectedDayData = data?.dailyTrends.find((d) => d.date === selectedDate);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0d1117]">
+        <div className="text-slate-400">Loading trends...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0d1117]">
+        <div className="text-red-400">Error: {error}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0d1117] text-slate-100">
+      {/* Header */}
+      <header className="border-b border-slate-800 bg-[#161b22]">
+        <div className="mx-auto max-w-6xl px-6 py-6">
+          <h1 className="text-2xl font-bold tracking-tight text-white">
+            <span className="text-emerald-400">📊</span> Keyword Trends
+          </h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Track trending topics on Hacker News • {data?.dateRange.from} to {data?.dateRange.to}
+          </p>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        {/* Weekly Movers */}
+        <div className="mb-8 grid gap-6 lg:grid-cols-3">
+          {/* Top Gainers */}
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-emerald-400">
+              <span>🚀</span> Top Gainers
+            </h2>
+            <div className="space-y-2">
+              {data?.topGainers.map((mover, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-lg bg-[#0d1117] px-3 py-2">
+                  <span className="font-medium text-slate-200">{mover.keyword}</span>
+                  <span className="text-emerald-400 font-mono">
+                    +{mover.weeklyChange} ranks
+                  </span>
+                </div>
+              ))}
+              {data?.topGainers.length === 0 && (
+                <div className="text-sm text-slate-500">No gainers this week</div>
+              )}
+            </div>
+          </div>
+
+          {/* Top Losers */}
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-red-400">
+              <span>📉</span> Top Losers
+            </h2>
+            <div className="space-y-2">
+              {data?.topLosers.map((mover, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-lg bg-[#0d1117] px-3 py-2">
+                  <span className="font-medium text-slate-200">{mover.keyword}</span>
+                  <span className="text-red-400 font-mono">
+                    {mover.weeklyChange} ranks
+                  </span>
+                </div>
+              ))}
+              {data?.topLosers.length === 0 && (
+                <div className="text-sm text-slate-500">No losers this week</div>
+              )}
+            </div>
+          </div>
+
+          {/* New This Week */}
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-cyan-400">
+              <span>🆕</span> New This Week
+            </h2>
+            <div className="space-y-2">
+              {data?.newThisWeek.map((mover, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-lg bg-[#0d1117] px-3 py-2">
+                  <span className="font-medium text-slate-200">{mover.keyword}</span>
+                  <span className="text-cyan-400 font-mono">
+                    #{mover.currentRank}
+                  </span>
+                </div>
+              ))}
+              {data?.newThisWeek.length === 0 && (
+                <div className="text-sm text-slate-500">No new keywords</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Date Selector */}
+        <div className="mb-6 flex flex-wrap gap-2">
+          {data?.dailyTrends.map((day) => (
+            <button
+              key={day.date}
+              onClick={() => setSelectedDate(day.date)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                selectedDate === day.date
+                  ? "bg-emerald-600 text-white"
+                  : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
+              }`}
+            >
+              {formatDate(day.date)}
+            </button>
+          ))}
+        </div>
+
+        {/* Daily Keywords Table */}
+        {selectedDayData && (
+          <div className="rounded-xl border border-slate-800 bg-[#161b22] overflow-hidden">
+            <div className="border-b border-slate-800 bg-[#1c2128] px-6 py-4">
+              <h2 className="text-lg font-semibold text-white">
+                {formatDate(selectedDayData.date)}
+              </h2>
+              <p className="text-sm text-slate-400">
+                {selectedDayData.itemCount.toLocaleString()} posts & comments analyzed
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-800 text-left text-sm text-slate-400">
+                    <th className="px-6 py-3 font-medium">Rank</th>
+                    <th className="px-6 py-3 font-medium">Keyword</th>
+                    <th className="px-6 py-3 font-medium text-center">Trend</th>
+                    <th className="px-6 py-3 font-medium text-right">Change</th>
+                    <th className="px-6 py-3 font-medium text-right">Variants</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedDayData.keywords.slice(0, 30).map((kw, idx) => (
+                    <tr
+                      key={idx}
+                      className="border-b border-slate-800/50 hover:bg-[#1c2128] transition-colors"
+                    >
+                      <td className="px-6 py-3">
+                        <span className="font-mono text-slate-300">#{kw.currentRank}</span>
+                      </td>
+                      <td className="px-6 py-3">
+                        <span className="font-medium text-white">{kw.keyword}</span>
+                      </td>
+                      <td className="px-6 py-3 text-center">
+                        <span className={getTrendColor(kw.trend)}>
+                          {getTrendIcon(kw.trend)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right font-mono">
+                        {getChangeDisplay(kw.rankChange, kw.trend === "new")}
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <span className="text-slate-400">{kw.variantCount}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {selectedDayData.keywords.length > 30 && (
+              <div className="border-t border-slate-800 px-6 py-3 text-center text-sm text-slate-500">
+                Showing top 30 of {selectedDayData.keywords.length} keywords
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
