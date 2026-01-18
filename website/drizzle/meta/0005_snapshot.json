@@ -1,6 +1,6 @@
 {
-  "id": "9a3dabfd-9eed-4d65-874b-9991ed64b941",
-  "prevId": "87d90674-25e9-4fb8-b132-bf31a90b94eb",
+  "id": "72719219-a875-46ed-a54b-fbcd92192574",
+  "prevId": "9a3dabfd-9eed-4d65-874b-9991ed64b941",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -25,6 +25,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "stemmed_keyword": {
+          "name": "stemmed_keyword",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "score": {
           "name": "score",
@@ -386,6 +392,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "stemmed_keyword": {
+          "name": "stemmed_keyword",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "last_item_time": {
           "name": "last_item_time",

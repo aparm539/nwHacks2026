@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { items, dailyKeywords } from "@/db/schema";
-import { and, gte, lt, inArray, sql } from "drizzle-orm";
-import { isBlacklisted } from "@/lib/keyword-blacklist";
+import { items, dailyKeywords, keywordStats } from "@/db/schema";
+import { and, gte, lt, inArray, sql, desc, or, ilike } from "drizzle-orm";
+import { isStemBlacklisted } from "@/lib/keyword-blacklist";
 
 const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";
 
 interface KeywordResult {
   keyword: string;
   score: number;
+  stemmed: string;
 }
 
 interface KeywordExtractionResponse {
@@ -19,6 +20,7 @@ interface KeywordExtractionResponse {
 
 interface AggregatedKeyword {
   keyword: string;
+  stem: string;
   avgScore: number;
   count: number;
   variants: string[];
@@ -38,39 +40,46 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-// Group keywords by root term
+// Group keywords by stem, selecting shortest variant as canonical
 function aggregateKeywords(keywords: KeywordResult[]): AggregatedKeyword[] {
-  const groups: Record<string, { keywords: string[]; totalScore: number; count: number }> = {};
+  const groups: Record<string, { 
+    keywords: string[]; 
+    totalScore: number; 
+    count: number;
+    shortestKeyword: string;
+  }> = {};
   
   for (const kw of keywords) {
-    // Skip blacklisted keywords
-    if (isBlacklisted(kw.keyword)) {
+    // Skip blacklisted keywords (using stem-based blacklist check)
+    if (isStemBlacklisted(kw.stemmed)) {
       continue;
     }
     
-    const lowerKeyword = kw.keyword.toLowerCase();
+    // Use the stemmed version from Python service as the group key
+    const stem = kw.stemmed;
     
-    const rootTerms = ["claude", "rust", "python", "agent", "api", "openai", "gpt", "llm", "ai", "machine learning", "deep learning", "javascript", "typescript", "react", "node", "docker", "kubernetes", "aws", "google", "microsoft", "apple", "linux", "github", "open source", "Adams", "user", "Windows"];
-    let matchedRoot = rootTerms.find(root => lowerKeyword.includes(root));
-    
-    if (!matchedRoot) matchedRoot = kw.keyword;
-    
-    // Also check if the root term is blacklisted
-    if (isBlacklisted(matchedRoot)) {
-      continue;
+    if (!groups[stem]) {
+      groups[stem] = { 
+        keywords: [], 
+        totalScore: 0, 
+        count: 0,
+        shortestKeyword: kw.keyword 
+      };
     }
+    groups[stem].keywords.push(kw.keyword);
+    groups[stem].totalScore += kw.score;
+    groups[stem].count++;
     
-    if (!groups[matchedRoot]) {
-      groups[matchedRoot] = { keywords: [], totalScore: 0, count: 0 };
+    // Keep the shortest variant as the canonical display keyword
+    if (kw.keyword.length < groups[stem].shortestKeyword.length) {
+      groups[stem].shortestKeyword = kw.keyword;
     }
-    groups[matchedRoot].keywords.push(kw.keyword);
-    groups[matchedRoot].totalScore += kw.score;
-    groups[matchedRoot].count++;
   }
   
   return Object.entries(groups)
-    .map(([root, data]) => ({
-      keyword: root,
+    .map(([stem, data]) => ({
+      keyword: data.shortestKeyword,
+      stem: stem,
       avgScore: data.totalScore / data.count,
       count: data.count,
       variants: data.keywords,
@@ -98,14 +107,18 @@ export async function POST(request: NextRequest) {
 
     // Generate list of all dates in range
     const allDates: string[] = [];
-    let currentTimestamp = minTime;
-    while (currentTimestamp <= maxTime) {
-      const date = new Date(currentTimestamp * 1000);
-      const dateStr = date.toISOString().split("T")[0];
-      if (!allDates.includes(dateStr)) {
-        allDates.push(dateStr);
-      }
-      currentTimestamp += 86400; // Add one day
+    
+    // Get the date strings for min and max times
+    const minDate = new Date(minTime * 1000).toISOString().split("T")[0];
+    const maxDate = new Date(maxTime * 1000).toISOString().split("T")[0];
+    
+    // Generate all dates from minDate to maxDate
+    const currentDate = new Date(minDate + "T00:00:00Z");
+    const endDate = new Date(maxDate + "T00:00:00Z");
+    
+    while (currentDate <= endDate) {
+      allDates.push(currentDate.toISOString().split("T")[0]);
+      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
     }
 
     // Get dates that already have keywords extracted
@@ -116,14 +129,18 @@ export async function POST(request: NextRequest) {
 
     // Filter to only dates that need processing
     let dates: string[];
+    const today = new Date().toISOString().split("T")[0];
+    
     if (forceReextract) {
-      // Clear all existing keywords and reprocess everything
-      console.log("Force re-extraction: clearing existing daily keywords...");
+      // Clear all existing keywords and stats, reprocess everything
+      console.log("Force re-extraction: clearing existing daily keywords and stats...");
       await db.delete(dailyKeywords);
+      await db.delete(keywordStats);
       dates = allDates;
     } else {
-      // Only process dates that don't have keywords yet
-      dates = allDates.filter(d => !existingDateSet.has(d));
+      // Process dates that don't have keywords yet, PLUS always re-process today
+      // This ensures lastItemTime stays up-to-date as new items arrive
+      dates = allDates.filter(d => !existingDateSet.has(d) || d === today);
     }
 
     if (dates.length === 0) {
@@ -213,18 +230,113 @@ export async function POST(request: NextRequest) {
       // Take top 75
       const top75 = aggregated.slice(0, 75);
 
-      // Insert into database (ignore conflicts from duplicate date+keyword)
+      // Insert into database
       if (top75.length > 0) {
+        // If re-processing today, delete existing keywords first
+        if (dateStr === today && existingDateSet.has(today)) {
+          await db.delete(dailyKeywords).where(sql`${dailyKeywords.date} = ${today}`);
+        }
+        
         await db.insert(dailyKeywords).values(
           top75.map((kw, idx) => ({
             date: dateStr,
             keyword: kw.keyword,
+            stemmedKeyword: kw.stem,
             score: kw.avgScore,
             rank: idx + 1,
             variantCount: kw.count,
             itemCount: dayItems.length,
           }))
         ).onConflictDoNothing();
+
+        // Update keyword stats - find most recent item for each keyword
+        const isReprocessingToday = dateStr === today && existingDateSet.has(today);
+        
+        for (const kw of top75) {
+          try {
+            // Search for items containing this keyword (case-insensitive)
+            const keywordLower = kw.keyword.toLowerCase();
+            
+            // When re-processing today, search ALL items to get the true most recent
+            // Otherwise, search only within the current day's time range
+            const matchingItem = await db
+              .select({ id: items.id, time: items.time })
+              .from(items)
+              .where(
+                isReprocessingToday
+                  ? or(
+                      ilike(items.title, `%${keywordLower}%`),
+                      ilike(items.text, `%${keywordLower}%`)
+                    )
+                  : and(
+                      gte(items.time, startOfDay),
+                      lt(items.time, endOfDay),
+                      or(
+                        ilike(items.title, `%${keywordLower}%`),
+                        ilike(items.text, `%${keywordLower}%`)
+                      )
+                    )
+              )
+              .orderBy(desc(items.time))
+              .limit(1);
+
+            if (matchingItem.length > 0) {
+              const itemTime = matchingItem[0].time;
+              const itemId = matchingItem[0].id;
+
+              if (isReprocessingToday) {
+                // When re-processing today, just update the lastItemTime without incrementing totalDaysAppeared
+                await db
+                  .insert(keywordStats)
+                  .values({
+                    keyword: kw.keyword,
+                    stemmedKeyword: kw.stem,
+                    lastItemTime: itemTime,
+                    lastItemId: itemId,
+                    firstSeenTime: itemTime,
+                    totalDaysAppeared: 1,
+                  })
+                  .onConflictDoUpdate({
+                    target: keywordStats.keyword,
+                    set: {
+                      // Always update to the most recent item time
+                      lastItemTime: itemTime,
+                      lastItemId: itemId,
+                      updatedAt: sql`NOW()`,
+                    },
+                  });
+              } else {
+                // First time processing this day - full upsert with stats
+                await db
+                  .insert(keywordStats)
+                  .values({
+                    keyword: kw.keyword,
+                    stemmedKeyword: kw.stem,
+                    lastItemTime: itemTime,
+                    lastItemId: itemId,
+                    firstSeenTime: itemTime,
+                    totalDaysAppeared: 1,
+                  })
+                  .onConflictDoUpdate({
+                    target: keywordStats.keyword,
+                    set: {
+                      // Update lastItemTime only if this item is more recent
+                      lastItemTime: sql`GREATEST(${keywordStats.lastItemTime}, ${itemTime})`,
+                      lastItemId: sql`CASE WHEN ${itemTime} > ${keywordStats.lastItemTime} THEN ${itemId} ELSE ${keywordStats.lastItemId} END`,
+                      // Update firstSeenTime only if this item is older
+                      firstSeenTime: sql`LEAST(${keywordStats.firstSeenTime}, ${itemTime})`,
+                      // Increment days appeared
+                      totalDaysAppeared: sql`${keywordStats.totalDaysAppeared} + 1`,
+                      updatedAt: sql`NOW()`,
+                    },
+                  });
+              }
+            }
+          } catch (statsError) {
+            // Log but don't fail the whole extraction
+            console.error(`Error updating stats for keyword "${kw.keyword}":`, statsError);
+          }
+        }
       }
 
       results.push({

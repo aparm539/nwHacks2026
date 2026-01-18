@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { dailyKeywords } from "@/db/schema";
-import { desc, asc } from "drizzle-orm";
+import { dailyKeywords, keywordStats } from "@/db/schema";
+import { asc } from "drizzle-orm";
 
 interface KeywordTrend {
   keyword: string;
@@ -11,6 +11,10 @@ interface KeywordTrend {
   currentScore: number;
   variantCount: number;
   trend: "up" | "down" | "new" | "stable";
+  // Stats from keywordStats table
+  lastSeenTime: number | null;
+  firstSeenTime: number | null;
+  totalDaysAppeared: number | null;
 }
 
 interface DailyTrends {
@@ -30,6 +34,10 @@ export async function GET() {
     if (allKeywords.length === 0) {
       return NextResponse.json({ error: "No daily keywords found" }, { status: 404 });
     }
+
+    // Fetch all keyword stats and create a lookup map
+    const allStats = await db.select().from(keywordStats);
+    const statsMap = new Map(allStats.map(s => [s.keyword, s]));
 
     // Group by date
     const byDate: Record<string, typeof allKeywords> = {};
@@ -72,6 +80,9 @@ export async function GET() {
           }
         }
 
+        // Get stats for this keyword
+        const stats = statsMap.get(kw.keyword);
+
         return {
           keyword: kw.keyword,
           currentRank: kw.rank,
@@ -80,6 +91,9 @@ export async function GET() {
           currentScore: kw.score,
           variantCount: kw.variantCount,
           trend,
+          lastSeenTime: stats?.lastItemTime ?? null,
+          firstSeenTime: stats?.firstSeenTime ?? null,
+          totalDaysAppeared: stats?.totalDaysAppeared ?? null,
         };
       });
 

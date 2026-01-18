@@ -220,8 +220,10 @@ export const dailyKeywords = pgTable(
     id: serial("id").primaryKey(),
     // The date this keyword was extracted from (YYYY-MM-DD)
     date: text("date").notNull(),
-    // The aggregated keyword
+    // The aggregated keyword (shortest variant)
     keyword: text("keyword").notNull(),
+    // The stemmed version of the keyword (used for grouping)
+    stemmedKeyword: text("stemmed_keyword"),
     // Average YAKE score across variants (lower = more relevant)
     score: real("score").notNull(),
     // Rank within this day (1 = most frequent)
@@ -244,6 +246,28 @@ export const dailyKeywords = pgTable(
 
 export type DailyKeyword = typeof dailyKeywords.$inferSelect;
 export type NewDailyKeyword = typeof dailyKeywords.$inferInsert;
+
+// Keyword stats table - global stats for each keyword (updated incrementally)
+export const keywordStats = pgTable("keyword_stats", {
+  id: serial("id").primaryKey(),
+  // The keyword (unique across all time)
+  keyword: text("keyword").notNull().unique(),
+  // The stemmed version of the keyword
+  stemmedKeyword: text("stemmed_keyword"),
+  // Unix timestamp of most recent item containing this keyword
+  lastItemTime: integer("last_item_time").notNull(),
+  // ID of the most recent item (for linking)
+  lastItemId: integer("last_item_id"),
+  // First time this keyword appeared (unix timestamp)
+  firstSeenTime: integer("first_seen_time").notNull(),
+  // Number of days this keyword has appeared
+  totalDaysAppeared: integer("total_days_appeared").notNull().default(1),
+  // Last updated timestamp
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type KeywordStat = typeof keywordStats.$inferSelect;
+export type NewKeywordStat = typeof keywordStats.$inferInsert;
 
 // Keyword extraction queue - tracks pending, processing, completed, and failed extractions
 export const keywordExtractionQueue = pgTable("keyword_extraction_queue", {
@@ -276,3 +300,31 @@ export type KeywordExtractionQueue =
   typeof keywordExtractionQueue.$inferSelect;
 export type NewKeywordExtractionQueue =
   typeof keywordExtractionQueue.$inferInsert;
+
+// Blacklist action enum - block adds to blacklist, allow removes/overrides defaults
+export const blacklistActionEnum = pgEnum("blacklist_action", ["block", "allow"]);
+
+// Blacklist overrides table - user-managed blacklist additions and removals
+export const blacklistOverrides = pgTable(
+  "blacklist_overrides",
+  {
+    id: serial("id").primaryKey(),
+    // The original keyword (for display)
+    keyword: text("keyword").notNull(),
+    // The stemmed version of the keyword (for matching)
+    stem: text("stem").notNull(),
+    // Action: 'block' to blacklist, 'allow' to override/whitelist a default
+    action: blacklistActionEnum("action").notNull(),
+    // Optional reason for the override
+    reason: text("reason"),
+    // When this override was created
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    // Unique constraint on stem to prevent duplicate overrides
+    stemUnique: unique("blacklist_overrides_stem_unique").on(table.stem),
+  })
+);
+
+export type BlacklistOverride = typeof blacklistOverrides.$inferSelect;
+export type NewBlacklistOverride = typeof blacklistOverrides.$inferInsert;

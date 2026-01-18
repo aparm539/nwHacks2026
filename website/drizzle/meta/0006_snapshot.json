@@ -1,9 +1,68 @@
 {
-  "id": "9a3dabfd-9eed-4d65-874b-9991ed64b941",
-  "prevId": "87d90674-25e9-4fb8-b132-bf31a90b94eb",
+  "id": "7e9e9577-cd9f-40ad-8101-44a717f5214a",
+  "prevId": "72719219-a875-46ed-a54b-fbcd92192574",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.blacklist_overrides": {
+      "name": "blacklist_overrides",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "keyword": {
+          "name": "keyword",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stem": {
+          "name": "stem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "blacklist_action",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "blacklist_overrides_stem_unique": {
+          "name": "blacklist_overrides_stem_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stem"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.daily_keywords": {
       "name": "daily_keywords",
       "schema": "",
@@ -25,6 +84,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "stemmed_keyword": {
+          "name": "stemmed_keyword",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "score": {
           "name": "score",
@@ -387,6 +452,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "stemmed_keyword": {
+          "name": "stemmed_keyword",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "last_item_time": {
           "name": "last_item_time",
           "type": "integer",
@@ -733,6 +804,14 @@
     }
   },
   "enums": {
+    "public.blacklist_action": {
+      "name": "blacklist_action",
+      "schema": "public",
+      "values": [
+        "block",
+        "allow"
+      ]
+    },
     "public.item_type": {
       "name": "item_type",
       "schema": "public",
