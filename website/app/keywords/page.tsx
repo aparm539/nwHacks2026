@@ -435,38 +435,6 @@ export default function KeywordTrendsPage() {
                   <span className="text-xs text-slate-400">Next update</span>
                 </div>
               )}
-              <button
-                onClick={() => setAutoUpdate(!autoUpdate)}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  autoUpdate
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                }`}
-              >
-                <div
-                  className={`w-2 h-2 rounded-full ${
-                    autoUpdate ? "bg-white animate-pulse" : "bg-slate-500"
-                  }`}
-                />
-                {autoUpdate ? "Auto-Update On" : "Auto-Update Off"}
-              </button>
-
-              <button
-                onClick={() => extractKeywords(false)}
-                disabled={extracting}
-                className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 transition-colors disabled:opacity-50"
-                title="Extract keywords for new days only"
-              >
-                {extracting ? "Extracting..." : "Update Keywords"}
-              </button>
-              <button
-                onClick={() => extractKeywords(true)}
-                disabled={extracting}
-                className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-slate-400 hover:bg-slate-700 hover:text-white transition-colors disabled:opacity-50"
-                title="Clear and re-extract all keywords"
-              >
-                Force Refresh
-              </button>
             </div>
           </div>
         </div>

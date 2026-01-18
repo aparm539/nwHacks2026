@@ -4,18 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
-interface StoryItem {
-  id: number;
-  type: string;
-  title: string | null;
-  text: string | null;
-  by: string | null;
-  time: number;
-  url: string | null;
-  score: number | null;
-  descendants: number | null;
-}
-
 interface WeeklyMover {
   keyword: string;
   currentRank: number;
@@ -31,57 +19,11 @@ interface TrendsData {
   newThisWeek: WeeklyMover[];
 }
 
-// Helper to format relative time
-const formatTimeAgo = (unixTime: number): string => {
-  const now = Date.now() / 1000;
-  const diff = now - unixTime;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return `${Math.floor(diff / 604800)}w ago`;
-};
-
-// Helper to decode HTML entities from HN data
-const decodeHtmlEntities = (text: string): string => {
-  return text
-    .replace(/&#x27;/g, "'")
-    .replace(/&#x2F;/g, "/")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-};
-
-// Extract domain from URL
-const getDomain = (url: string): string => {
-  try {
-    const hostname = new URL(url).hostname;
-    return hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-};
-
 export default function Home() {
-  const [stories, setStories] = useState<StoryItem[]>([]);
   const [trends, setTrends] = useState<TrendsData | null>(null);
-  const [loadingStories, setLoadingStories] = useState(true);
   const [loadingTrends, setLoadingTrends] = useState(true);
-
-  useEffect(() => {
-    // Fetch top stories from the past 24 hours, sorted by score
-    fetch("/api/items/top?limit=20&hours=24")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.items) {
-          setStories(data.items);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingStories(false));
-
-    // Fetch keyword trends
+ useEffect(() => {
+  // Fetch keyword trends
     fetch("/api/keywords/trends")
       .then((res) => res.json())
       .then((data) => {

@@ -97,6 +97,15 @@ export function BlacklistTab() {
     }
   }, []);
 
+  const refreshTrends = useCallback(async () => {
+    try {
+      await fetch("/api/keywords/extract-daily?force=true", { method: "POST" });
+      await fetchTopKeywords();
+    } catch {
+      // Non-critical; trends may update on next manual refresh
+    }
+  }, [fetchTopKeywords]);
+
   useEffect(() => {
     fetchBlacklist();
     fetchTopKeywords();
@@ -123,6 +132,7 @@ export function BlacklistTab() {
       if (data.success) {
         if (!keywordToAdd) setNewKeyword("");
         fetchBlacklist();
+        refreshTrends();
       } else {
         setError(data.error || "Failed to add keyword");
       }
@@ -168,6 +178,7 @@ export function BlacklistTab() {
             setError(data.error || "Failed to update");
           }
           fetchBlacklist();
+          refreshTrends();
         } catch {
           setError("Failed to update");
         }
@@ -182,6 +193,7 @@ export function BlacklistTab() {
             setError(data.error || "Failed to remove override");
           }
           fetchBlacklist();
+          refreshTrends();
         } catch {
           setError("Failed to remove override");
         }
@@ -198,6 +210,7 @@ export function BlacklistTab() {
             setError(data.error || "Failed to delete");
           }
           fetchBlacklist();
+          refreshTrends();
         } catch {
           setError("Failed to delete");
         }

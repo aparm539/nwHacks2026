@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { items, dailyKeywords, keywordStats } from "@/db/schema";
 import { and, gte, lt, inArray, sql, desc, or, ilike } from "drizzle-orm";
 import { isStemBlacklisted } from "@/lib/keyword-blacklist";
+import { getParentKeyword } from "@/lib/keyword-variants";
 
 const KEYWORD_SERVICE_URL = process.env.KEYWORD_SERVICE_URL || "http://127.0.0.1:8000";
 
@@ -41,7 +42,8 @@ function stripHtml(html: string): string {
 }
 
 // Group keywords by stem, selecting shortest variant as canonical
-function aggregateKeywords(keywords: KeywordResult[]): AggregatedKeyword[] {
+// Manual variant overrides take precedence over automatic stem-based grouping
+async function aggregateKeywords(keywords: KeywordResult[]): Promise<AggregatedKeyword[]> {
   const groups: Record<string, { 
     keywords: string[]; 
     totalScore: number; 
@@ -55,31 +57,32 @@ function aggregateKeywords(keywords: KeywordResult[]): AggregatedKeyword[] {
       continue;
     }
     
-    // Use the stemmed version from Python service as the group key
-    const stem = kw.stemmed;
+    // Check for manual variant override first (takes precedence)
+    const parentKeyword = await getParentKeyword(kw.keyword);
+    const groupKey = parentKeyword || kw.stemmed; // Use parent if exists, otherwise use stem
     
-    if (!groups[stem]) {
-      groups[stem] = { 
+    if (!groups[groupKey]) {
+      groups[groupKey] = { 
         keywords: [], 
         totalScore: 0, 
         count: 0,
-        shortestKeyword: kw.keyword 
+        shortestKeyword: parentKeyword || kw.keyword // Use parent as display if it exists
       };
     }
-    groups[stem].keywords.push(kw.keyword);
-    groups[stem].totalScore += kw.score;
-    groups[stem].count++;
+    groups[groupKey].keywords.push(kw.keyword);
+    groups[groupKey].totalScore += kw.score;
+    groups[groupKey].count++;
     
-    // Keep the shortest variant as the canonical display keyword
-    if (kw.keyword.length < groups[stem].shortestKeyword.length) {
-      groups[stem].shortestKeyword = kw.keyword;
+    // Keep the shortest variant as the canonical display keyword (unless we have a parent override)
+    if (!parentKeyword && kw.keyword.length < groups[groupKey].shortestKeyword.length) {
+      groups[groupKey].shortestKeyword = kw.keyword;
     }
   }
   
   return Object.entries(groups)
-    .map(([stem, data]) => ({
+    .map(([groupKey, data]) => ({
       keyword: data.shortestKeyword,
-      stem: stem,
+      stem: groupKey,
       avgScore: data.totalScore / data.count,
       count: data.count,
       variants: data.keywords,
@@ -224,21 +227,18 @@ export async function POST(request: NextRequest) {
 
       const keywordData: KeywordExtractionResponse = await keywordResponse.json();
       
-      // Aggregate keywords
-      const aggregated = aggregateKeywords(keywordData.keywords);
-      
-      // Take top 75
-      const top75 = aggregated.slice(0, 75);
+      // Aggregate keywords (respects manual variant overrides)
+      const aggregated = await aggregateKeywords(keywordData.keywords);
 
       // Insert into database
-      if (top75.length > 0) {
+      if (aggregated.length > 0) {
         // If re-processing today, delete existing keywords first
         if (dateStr === today && existingDateSet.has(today)) {
           await db.delete(dailyKeywords).where(sql`${dailyKeywords.date} = ${today}`);
         }
         
         await db.insert(dailyKeywords).values(
-          top75.map((kw, idx) => ({
+          aggregated.map((kw, idx) => ({
             date: dateStr,
             keyword: kw.keyword,
             stemmedKeyword: kw.stem,
@@ -253,7 +253,7 @@ export async function POST(request: NextRequest) {
         // Always search ALL items to find the true most recent item containing each keyword
         const isReprocessingToday = dateStr === today && existingDateSet.has(today);
         
-        for (const kw of top75) {
+        for (const kw of aggregated) {
           try {
             // Search for items containing this keyword (case-insensitive)
             // Always search ALL items (no date filter) to get the globally most recent match
@@ -333,10 +333,10 @@ export async function POST(request: NextRequest) {
       results.push({
         date: dateStr,
         itemCount: dayItems.length,
-        keywordCount: top75.length,
+        keywordCount: aggregated.length,
       });
 
-      console.log(`Processed ${dateStr}: ${dayItems.length} items, ${top75.length} keywords`);
+      console.log(`Processed ${dateStr}: ${dayItems.length} items, ${aggregated.length} keywords`);
     }
 
     // Get updated count of days with keywords
