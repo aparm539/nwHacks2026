@@ -8,6 +8,7 @@ import {
   findExistingRunningSyncOrPaused,
   createSyncRun,
 } from "@/lib/sync-utils";
+import { createQueueRecord } from "@/lib/keyword-queue";
 
 const CHUNK_SIZE = 500; // Smaller chunks for cron to fit in timeout
 const CONCURRENCY = 20;
@@ -192,6 +193,28 @@ export async function GET(request: NextRequest): Promise<NextResponse<CronSyncRe
       const result = await processChunk(syncRunId);
       totalInserted += result.inserted;
       done = result.done;
+    }
+
+    // If sync completed, queue keyword extraction asynchronously
+    if (done) {
+      try {
+        await createQueueRecord(syncRunId);
+        console.log(`Queued keyword extraction for sync run ${syncRunId}`);
+
+        // Trigger async processing (fire-and-forget to avoid timeout)
+        fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000"}/api/keywords/process-queue`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          }
+        ).catch((error) => {
+          console.error("Error triggering keyword extraction processing:", error);
+        });
+      } catch (error) {
+        console.error("Failed to queue keyword extraction:", error);
+        // Continue anyway - sync completed successfully, just queue is missing
+      }
     }
 
     return NextResponse.json({

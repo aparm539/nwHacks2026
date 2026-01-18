@@ -29,6 +29,13 @@
       "when": 1768702584108,
       "tag": "0003_flashy_viper",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1768704657042,
+      "tag": "0004_perfect_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

@@ -50,6 +50,7 @@ export default function SyncDashboard() {
   const [autoSync, setAutoSync] = useState(false);
   const [connected, setConnected] = useState(false);
   const [itemCount, setItemCount] = useState<number | null>(null);
+  const [cronTesting, setCronTesting] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Fetch sync run history
@@ -152,6 +153,37 @@ export default function SyncDashboard() {
       fetchStatus();
     } catch {
       setError("Failed to pause sync");
+    }
+  };
+
+  // Test cron sync
+  const testCronSync = async () => {
+    setError(null);
+    setCronTesting(true);
+
+    try {
+      const res = await fetch("/api/cron/sync", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET || ""}`,
+        },
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        setError(`Cron test failed: ${data.message}`);
+      } else {
+        setError(null);
+        // Show success message temporarily
+        setTimeout(() => {
+          fetchRuns();
+          fetchStatus();
+        }, 500);
+      }
+    } catch (err) {
+      setError(`Cron test error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setCronTesting(false);
     }
   };
 
@@ -379,28 +411,38 @@ export default function SyncDashboard() {
 
         {/* Start New Sync Buttons */}
         {!currentProgress || currentProgress.done ? (
-          <div className="mb-8 flex gap-4">
-            <button
-              onClick={() => startSync("initial")}
-              disabled={syncing || (itemCount !== null && itemCount > 0)}
-              className="px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
-            >
-              {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
-            </button>
-            <button
-              onClick={() => startSync("incremental")}
-              disabled={syncing}
-              className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Fetch new items since last sync"
-            >
-              {syncing ? "Starting..." : "Incremental Sync"}
-            </button>
-            {itemCount !== null && (
-              <span className="self-center text-sm text-gray-500">
-                {itemCount.toLocaleString()} items in database
-              </span>
-            )}
+          <div className="mb-8">
+            <div className="flex gap-4 mb-4">
+              <button
+                onClick={() => startSync("initial")}
+                disabled={syncing || (itemCount !== null && itemCount > 0)}
+                className="px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
+              >
+                {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
+              </button>
+              <button
+                onClick={() => startSync("incremental")}
+                disabled={syncing}
+                className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Fetch new items since last sync"
+              >
+                {syncing ? "Starting..." : "Incremental Sync"}
+              </button>
+              <button
+                onClick={testCronSync}
+                disabled={cronTesting}
+                className="px-8 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Test the cron sync endpoint (5-minute sync simulation)"
+              >
+                {cronTesting ? "Testing..." : "Test Cron"}
+              </button>
+              {itemCount !== null && (
+                <span className="self-center text-sm text-gray-500">
+                  {itemCount.toLocaleString()} items in database
+                </span>
+              )}
+            </div>
           </div>
         ) : null}
 
