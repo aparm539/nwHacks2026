@@ -703,10 +703,13 @@ export default function DraftPage() {
 
         <div className="flex-1 flex overflow-hidden">
           {/* Left Side - Team Rosters */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="w-72 lg:w-80 border-r border-slate-800 bg-[#161b22] flex flex-col overflow-y-auto">
+            <div className="p-4 border-b border-slate-800">
+              <h3 className="text-lg font-semibold text-white">Teams</h3>
+            </div>
+            <div className="p-4 space-y-4">
               {/* Human Player Card - Highlighted */}
-              <div className="rounded-xl border-2 border-emerald-500 bg-[#161b22] p-5">
+              <div className="rounded-xl border-2 border-emerald-500 bg-[#0d1117] p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className={`w-4 h-4 rounded-full ${humanPlayer.color}`} />
                   <h3 className="text-base font-semibold text-white">{humanPlayer.name}</h3>
@@ -716,7 +719,7 @@ export default function DraftPage() {
                   {humanRoster.map((keyword) => {
                     const pick = draftState.pickHistory.find(p => p.keyword === keyword);
                     return (
-                      <div key={keyword} className="flex items-center justify-between bg-[#0d1117] rounded-lg px-3 py-1.5">
+                      <div key={keyword} className="flex items-center justify-between bg-[#161b22] rounded-lg px-3 py-1.5">
                         <span className="font-medium text-white text-sm">{keyword}</span>
                         <span className="text-xs text-slate-400">#{pick?.rank}</span>
                       </div>
@@ -727,7 +730,7 @@ export default function DraftPage() {
 
               {/* AI Player Cards */}
               {draftState.players.filter(p => !p.isHuman).map((player) => (
-                <div key={player.id} className="rounded-xl border border-slate-800 bg-[#161b22] p-5">
+                <div key={player.id} className="rounded-xl border border-slate-800 bg-[#0d1117] p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <div className={`w-4 h-4 rounded-full ${player.color}`} />
                     <h3 className="text-base font-semibold text-slate-300">{player.name}</h3>
@@ -736,7 +739,7 @@ export default function DraftPage() {
                     {draftState.rosters[player.id].map((keyword) => {
                       const pick = draftState.pickHistory.find(p => p.keyword === keyword);
                       return (
-                        <div key={keyword} className="flex items-center justify-between bg-[#0d1117] rounded-lg px-3 py-1.5">
+                        <div key={keyword} className="flex items-center justify-between bg-[#161b22] rounded-lg px-3 py-1.5">
                           <span className="font-medium text-slate-300 text-sm">{keyword}</span>
                           <span className="text-xs text-slate-500">#{pick?.rank}</span>
                         </div>
@@ -745,6 +748,62 @@ export default function DraftPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Middle - Recent Items Feed */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-800 bg-[#161b22]">
+              <h3 className="text-lg font-semibold text-white">Recent Posts & Comments</h3>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {recentItems.length === 0 ? (
+                  <div className="col-span-full text-center text-slate-500 py-8">
+                    Loading recent items...
+                  </div>
+                ) : (
+                  recentItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-slate-800 bg-[#161b22] p-4 hover:border-slate-700 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-2 text-xs text-slate-500">
+                        <span className={`px-1.5 py-0.5 rounded ${
+                          item.type === "story" ? "bg-orange-900/50 text-orange-400" : "bg-slate-800 text-slate-400"
+                        }`}>
+                          {item.type}
+                        </span>
+                        {item.by && <span>by {item.by}</span>}
+                        <span>{formatLastSeen(item.time)}</span>
+                        {item.score !== null && item.score > 0 && (
+                          <span className="text-emerald-400">{item.score} pts</span>
+                        )}
+                      </div>
+                      {item.title && (
+                        <div className="text-sm font-medium text-white mb-1">
+                          {highlightKeywords(item.title)}
+                        </div>
+                      )}
+                      {item.text && (
+                        <div className="text-sm text-slate-400 line-clamp-3">
+                          {highlightKeywords(item.text.replace(/<[^>]*>/g, ' ').slice(0, 300))}
+                        </div>
+                      )}
+                      {item.url && (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-400 hover:underline mt-1 block truncate"
+                        >
+                          {item.url}
+                        </a>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
@@ -774,60 +833,6 @@ export default function DraftPage() {
                   );
                 })}
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom - Recent Items Feed */}
-        <div className="border-t border-slate-800 bg-[#161b22]">
-          <div className="mx-auto max-w-7xl px-6 py-4">
-            <h3 className="text-lg font-semibold text-white mb-4">Recent Posts & Comments</h3>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 max-h-80 overflow-y-auto">
-              {recentItems.length === 0 ? (
-                <div className="col-span-full text-center text-slate-500 py-8">
-                  Loading recent items...
-                </div>
-              ) : (
-                recentItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-lg border border-slate-800 bg-[#0d1117] p-4 hover:border-slate-700 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 mb-2 text-xs text-slate-500">
-                      <span className={`px-1.5 py-0.5 rounded ${
-                        item.type === "story" ? "bg-orange-900/50 text-orange-400" : "bg-slate-800 text-slate-400"
-                      }`}>
-                        {item.type}
-                      </span>
-                      {item.by && <span>by {item.by}</span>}
-                      <span>{formatLastSeen(item.time)}</span>
-                      {item.score !== null && item.score > 0 && (
-                        <span className="text-emerald-400">{item.score} pts</span>
-                      )}
-                    </div>
-                    {item.title && (
-                      <div className="text-sm font-medium text-white mb-1">
-                        {highlightKeywords(item.title)}
-                      </div>
-                    )}
-                    {item.text && (
-                      <div className="text-sm text-slate-400 line-clamp-3">
-                        {highlightKeywords(item.text.replace(/<[^>]*>/g, ' ').slice(0, 300))}
-                      </div>
-                    )}
-                    {item.url && (
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-400 hover:underline mt-1 block truncate"
-                      >
-                        {item.url}
-                      </a>
-                    )}
-                  </div>
-                ))
-              )}
             </div>
           </div>
         </div>
