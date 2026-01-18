@@ -1,235 +1,102 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { items, users, syncRuns } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { syncRuns } from "@/db/schema";
+import { desc, eq, or } from "drizzle-orm";
+import {
+  fetchMaxItem,
+  findItemIdAtTimestamp,
+  ONE_WEEK_SECONDS,
+} from "@/lib/hn-api";
 
-const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
-const ONE_WEEK_SECONDS = 7 * 24 * 60 * 60;
+interface StartSyncResult {
+  success: boolean;
+  syncRunId?: number;
+  startMaxItem?: number;
+  targetEndItem?: number;
+  totalItems?: number;
+  resumed?: boolean;
+  error?: string;
+}
 
-// Types for HN API responses
-interface HNItem {
+interface SyncRunStatus {
   id: number;
-  deleted?: boolean;
-  type?: "job" | "story" | "comment" | "poll" | "pollopt";
-  by?: string;
-  time?: number;
-  text?: string;
-  dead?: boolean;
-  parent?: number;
-  poll?: number;
-  kids?: number[];
-  url?: string;
-  score?: number;
-  title?: string;
-  parts?: number[];
-  descendants?: number;
+  startMaxItem: number;
+  targetEndItem: number;
+  totalItems: number;
+  lastFetchedItem: number;
+  itemsFetched: number;
+  startedAt: Date;
+  completedAt: Date | null;
+  status: string;
+  errorMessage: string | null;
+  progress: number;
 }
 
-interface HNUser {
-  id: string;
-  created: number;
-  karma: number;
-  about?: string;
-  submitted?: number[];
-}
-
-async function fetchHNItem(id: number): Promise<HNItem | null> {
+// POST - Start a new sync or resume an existing one
+export async function POST(): Promise<NextResponse<StartSyncResult>> {
   try {
-    const response = await fetch(`${HN_API_BASE}/item/${id}.json`);
-    if (!response.ok) return null;
-    return response.json();
-  } catch {
-    return null;
-  }
-}
+    // Check for an existing running/paused sync
+    const [existingSync] = await db
+      .select()
+      .from(syncRuns)
+      .where(or(eq(syncRuns.status, "running"), eq(syncRuns.status, "paused")))
+      .orderBy(desc(syncRuns.startedAt))
+      .limit(1);
 
-async function fetchHNUser(id: string): Promise<HNUser | null> {
-  try {
-    const response = await fetch(`${HN_API_BASE}/user/${id}.json`);
-    if (!response.ok) return null;
-    return response.json();
-  } catch {
-    return null;
-  }
-}
+    if (existingSync) {
+      // Resume the existing sync
+      await db
+        .update(syncRuns)
+        .set({ status: "running" })
+        .where(eq(syncRuns.id, existingSync.id));
 
-async function fetchMaxItem(): Promise<number> {
-  const response = await fetch(`${HN_API_BASE}/maxitem.json`);
-  return response.json();
-}
+      return NextResponse.json({
+        success: true,
+        syncRunId: existingSync.id,
+        startMaxItem: existingSync.startMaxItem,
+        targetEndItem: existingSync.targetEndItem,
+        totalItems: existingSync.totalItems,
+        resumed: true,
+      });
+    }
 
-async function ensureUserExists(username: string): Promise<boolean> {
-  // Check if user already exists
-  const existing = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, username))
-    .limit(1);
+    // Get the current max item ID from HN
+    const maxItem = await fetchMaxItem();
 
-  if (existing.length > 0) return true;
-
-  // Fetch user from HN API
-  const hnUser = await fetchHNUser(username);
-  if (!hnUser) return false;
-
-  try {
-    await db.insert(users).values({
-      id: hnUser.id,
-      created: hnUser.created,
-      karma: hnUser.karma,
-      about: hnUser.about ?? null,
-    });
-    return true;
-  } catch {
-    // User might have been inserted by another request - ignore
-    return true;
-  }
-}
-
-async function insertItem(hnItem: HNItem): Promise<boolean> {
-  if (!hnItem.type || !hnItem.time) return false;
-
-  // Ensure user exists if there's an author
-  if (hnItem.by) {
-    await ensureUserExists(hnItem.by);
-  }
-
-  try {
-    // Insert the item
-    await db
-      .insert(items)
-      .values({
-        id: hnItem.id,
-        deleted: hnItem.deleted ?? false,
-        type: hnItem.type,
-        by: hnItem.by ?? null,
-        time: hnItem.time,
-        text: hnItem.text ?? null,
-        dead: hnItem.dead ?? false,
-        parent: hnItem.parent ?? null,
-        poll: hnItem.poll ?? null,
-        url: hnItem.url ?? null,
-        score: hnItem.score ?? 0,
-        title: hnItem.title ?? null,
-        descendants: hnItem.descendants ?? 0,
-      })
-      .onConflictDoNothing();
-
-    // Note: Kids and parts relationships are stored in the items themselves
-    // They reference other item IDs which may or may not exist yet
-    // The HN API includes kids[] and parts[] arrays directly on items
-
-    return true;
-  } catch (error) {
-    console.error(`Failed to insert item ${hnItem.id}:`, error);
-    return false;
-  }
-}
-
-export async function POST() {
-  try {
+    // Calculate one week ago timestamp
     const now = Math.floor(Date.now() / 1000);
     const oneWeekAgo = now - ONE_WEEK_SECONDS;
 
-    // Get the max item ID from HN
-    const maxItem = await fetchMaxItem();
+    // Binary search to find the item ID at the one-week boundary
+    console.log("Finding item ID at one-week boundary...");
+    const targetEndItem = await findItemIdAtTimestamp(oneWeekAgo, maxItem);
+    console.log(`Target end item: ${targetEndItem}`);
 
-    // Get the last sync run to determine where to stop
-    const lastSync = await db
-      .select()
-      .from(syncRuns)
-      .where(eq(syncRuns.status, "completed"))
-      .orderBy(desc(syncRuns.completedAt))
-      .limit(1);
+    const totalItems = maxItem - targetEndItem;
 
-    const stopAtItem = lastSync.length > 0 ? lastSync[0].startMaxItem : 0;
-
-    // Create a new sync run record
+    // Create a new sync run
     const [syncRun] = await db
       .insert(syncRuns)
       .values({
         startMaxItem: maxItem,
+        targetEndItem,
+        totalItems,
         lastFetchedItem: maxItem,
         itemsFetched: 0,
         status: "running",
       })
       .returning();
 
-    let currentId = maxItem;
-    let itemsFetched = 0;
-    let lastFetchedItem = maxItem;
-    const batchSize = 100; // Process in batches for efficiency
-
-    // Walk backwards from maxItem
-    while (currentId > 0) {
-      const batchPromises: Promise<HNItem | null>[] = [];
-
-      // Fetch a batch of items in parallel
-      for (let i = 0; i < batchSize && currentId > 0; i++, currentId--) {
-        // Stop if we've reached items from the previous sync
-        if (currentId <= stopAtItem && stopAtItem > 0) {
-          currentId = 0;
-          break;
-        }
-        batchPromises.push(fetchHNItem(currentId));
-      }
-
-      const batchItems = await Promise.all(batchPromises);
-
-      let shouldStop = false;
-
-      for (const hnItem of batchItems) {
-        if (!hnItem) continue;
-
-        // Check if the item is older than one week
-        if (hnItem.time && hnItem.time < oneWeekAgo) {
-          shouldStop = true;
-          break;
-        }
-
-        // Insert the item
-        const inserted = await insertItem(hnItem);
-        if (inserted) {
-          itemsFetched++;
-          lastFetchedItem = hnItem.id;
-        }
-      }
-
-      // Update the sync run progress periodically
-      if (itemsFetched % 500 === 0) {
-        await db
-          .update(syncRuns)
-          .set({
-            lastFetchedItem,
-            itemsFetched,
-          })
-          .where(eq(syncRuns.id, syncRun.id));
-      }
-
-      if (shouldStop) break;
-    }
-
-    // Mark sync as completed
-    await db
-      .update(syncRuns)
-      .set({
-        lastFetchedItem,
-        itemsFetched,
-        completedAt: new Date(),
-        status: "completed",
-      })
-      .where(eq(syncRuns.id, syncRun.id));
-
     return NextResponse.json({
       success: true,
       syncRunId: syncRun.id,
       startMaxItem: maxItem,
-      lastFetchedItem,
-      itemsFetched,
-      stoppedAtPreviousSync: stopAtItem > 0 && lastFetchedItem > stopAtItem,
+      targetEndItem,
+      totalItems,
+      resumed: false,
     });
   } catch (error) {
-    console.error("Sync failed:", error);
+    console.error("Failed to start sync:", error);
     return NextResponse.json(
       { success: false, error: String(error) },
       { status: 500 }
@@ -237,13 +104,47 @@ export async function POST() {
   }
 }
 
-export async function GET() {
-  // Get sync run history
+// GET - Get sync run status and history
+export async function GET(): Promise<NextResponse<{ runs: SyncRunStatus[] }>> {
   const runs = await db
     .select()
     .from(syncRuns)
     .orderBy(desc(syncRuns.startedAt))
     .limit(10);
 
-  return NextResponse.json({ runs });
+  const runsWithProgress = runs.map((run) => ({
+    ...run,
+    progress:
+      run.totalItems > 0
+        ? Math.round(
+            ((run.startMaxItem - run.lastFetchedItem) / run.totalItems) * 100
+          )
+        : 0,
+  }));
+
+  return NextResponse.json({ runs: runsWithProgress });
+}
+
+// DELETE - Pause a running sync
+export async function DELETE(): Promise<NextResponse<{ success: boolean; error?: string }>> {
+  try {
+    const [runningSync] = await db
+      .select()
+      .from(syncRuns)
+      .where(eq(syncRuns.status, "running"))
+      .limit(1);
+
+    if (!runningSync) {
+      return NextResponse.json({ success: false, error: "No running sync to pause" });
+    }
+
+    await db
+      .update(syncRuns)
+      .set({ status: "paused" })
+      .where(eq(syncRuns.id, runningSync.id));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
+  }
 }

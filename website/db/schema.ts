@@ -106,6 +106,10 @@ export const syncRuns = pgTable("sync_runs", {
   id: serial("id").primaryKey(),
   // The max item ID at the start of this sync run
   startMaxItem: integer("start_max_item").notNull(),
+  // The target end item ID (one week ago boundary)
+  targetEndItem: integer("target_end_item").notNull(),
+  // Total items to fetch (startMaxItem - targetEndItem)
+  totalItems: integer("total_items").notNull(),
   // The last item ID that was successfully fetched
   lastFetchedItem: integer("last_fetched_item").notNull(),
   // Number of items fetched in this run
@@ -115,7 +119,9 @@ export const syncRuns = pgTable("sync_runs", {
   // When the sync run completed
   completedAt: timestamp("completed_at"),
   // Status of the sync run
-  status: text("status").notNull().default("running"), // 'running', 'completed', 'failed'
+  status: text("status").notNull().default("running"), // 'running', 'completed', 'failed', 'paused'
+  // Error message if sync failed
+  errorMessage: text("error_message"),
 });
 
 // Relations
