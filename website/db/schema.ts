@@ -8,6 +8,7 @@ import {
   timestamp,
   real,
   foreignKey,
+  unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -213,23 +214,33 @@ export type Keyword = typeof keywords.$inferSelect;
 export type NewKeyword = typeof keywords.$inferInsert;
 
 // Daily keywords table - keywords aggregated by date
-export const dailyKeywords = pgTable("daily_keywords", {
-  id: serial("id").primaryKey(),
-  // The date this keyword was extracted from (YYYY-MM-DD)
-  date: text("date").notNull(),
-  // The aggregated keyword
-  keyword: text("keyword").notNull(),
-  // Average YAKE score across variants (lower = more relevant)
-  score: real("score").notNull(),
-  // Rank within this day (1 = most frequent)
-  rank: integer("rank").notNull(),
-  // Number of variants merged into this keyword
-  variantCount: integer("variant_count").notNull(),
-  // Number of items analyzed for this day
-  itemCount: integer("item_count").notNull(),
-  // When this row was created
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const dailyKeywords = pgTable(
+  "daily_keywords",
+  {
+    id: serial("id").primaryKey(),
+    // The date this keyword was extracted from (YYYY-MM-DD)
+    date: text("date").notNull(),
+    // The aggregated keyword
+    keyword: text("keyword").notNull(),
+    // Average YAKE score across variants (lower = more relevant)
+    score: real("score").notNull(),
+    // Rank within this day (1 = most frequent)
+    rank: integer("rank").notNull(),
+    // Number of variants merged into this keyword
+    variantCount: integer("variant_count").notNull(),
+    // Number of items analyzed for this day
+    itemCount: integer("item_count").notNull(),
+    // When this row was created
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    // Unique constraint on date + keyword to prevent duplicates
+    dateKeywordUnique: unique("daily_keywords_date_keyword_unique").on(
+      table.date,
+      table.keyword
+    ),
+  })
+);
 
 export type DailyKeyword = typeof dailyKeywords.$inferSelect;
 export type NewDailyKeyword = typeof dailyKeywords.$inferInsert;
