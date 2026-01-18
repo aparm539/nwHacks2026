@@ -1,0 +1,38 @@
+name: Run Database Migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'website/db/**'
+      - 'website/drizzle/**'
+      - 'website/drizzle.config.ts'
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        working-directory: ./website
+        run: pnpm install --frozen-lockfile
+
+      - name: Run migrations
+        working-directory: ./website
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm drizzle-kit push
