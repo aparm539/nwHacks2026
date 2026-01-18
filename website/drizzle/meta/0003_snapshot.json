@@ -1,9 +1,71 @@
 {
-  "id": "ff27bc4d-111e-40bf-81d1-30040c64d8fb",
-  "prevId": "eb8dc6ab-0a71-4493-93c7-e1844fa91f26",
+  "id": "87d90674-25e9-4fb8-b132-bf31a90b94eb",
+  "prevId": "ff27bc4d-111e-40bf-81d1-30040c64d8fb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.daily_keywords": {
+      "name": "daily_keywords",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "keyword": {
+          "name": "keyword",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "score": {
+          "name": "score",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rank": {
+          "name": "rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "variant_count": {
+          "name": "variant_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.item_kids": {
       "name": "item_kids",
       "schema": "",
@@ -369,13 +431,15 @@
           "name": "target_end_item",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 0
         },
         "total_items": {
           "name": "total_items",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 0
         },
         "last_fetched_item": {
           "name": "last_fetched_item",

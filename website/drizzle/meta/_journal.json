@@ -19,8 +19,15 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1768693054841,
-      "tag": "0002_parallel_scream",
+      "when": 1768695279150,
+      "tag": "0002_gray_unicorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1768702584108,
+      "tag": "0003_flashy_viper",
       "breakpoints": true
     }
   ]

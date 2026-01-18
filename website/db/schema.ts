@@ -7,10 +7,10 @@ import {
   pgEnum,
   timestamp,
   real,
+  foreignKey,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-// Enum for item types
 export const itemTypeEnum = pgEnum("item_type", [
   "story",
   "comment",
@@ -19,51 +19,29 @@ export const itemTypeEnum = pgEnum("item_type", [
   "pollopt",
 ]);
 
-// Users table - matches HN API /v0/user/<id>
 export const users = pgTable("users", {
-  // The user's unique username. Case-sensitive.
   id: text("id").primaryKey(),
-  // Creation date of the user, in Unix Time
   created: integer("created").notNull(),
-  // The user's karma
   karma: integer("karma").notNull().default(0),
-  // The user's optional self-description. HTML.
   about: text("about"),
 });
 
-// Items table - matches HN API /v0/item/<id>
-// Stories, comments, jobs, Ask HNs, polls, and pollopts are all items
 export const items = pgTable("items", {
-  // The item's unique id
   id: integer("id").primaryKey(),
-  // true if the item is deleted
   deleted: boolean("deleted").default(false),
-  // The type of item: "job", "story", "comment", "poll", or "pollopt"
   type: itemTypeEnum("type").notNull(),
-  // The username of the item's author
   by: text("by").references(() => users.id),
-  // Creation date of the item, in Unix Time
   time: integer("time").notNull(),
-  // The comment, story or poll text. HTML.
   text: text("text"),
-  // true if the item is dead
   dead: boolean("dead").default(false),
-  // The comment's parent: either another comment or the relevant story
   parent: integer("parent"),
-  // The pollopt's associated poll
   poll: integer("poll"),
-  // The URL of the story
   url: text("url"),
-  // The story's score, or the votes for a pollopt
   score: integer("score").default(0),
-  // The title of the story, poll or job. HTML.
   title: text("title"),
-  // In the case of stories or polls, the total comment count
   descendants: integer("descendants").default(0),
 });
 
-// Junction table for item kids (comments)
-// The ids of the item's comments, in ranked display order
 export const itemKids = pgTable("item_kids", {
   id: serial("id").primaryKey(),
   itemId: integer("item_id")
@@ -72,12 +50,9 @@ export const itemKids = pgTable("item_kids", {
   kidId: integer("kid_id")
     .notNull()
     .references(() => items.id),
-  // Order/rank of the kid in display order
   rank: integer("rank").notNull(),
 });
 
-// Junction table for poll parts (pollopts)
-// A list of related pollopts, in display order
 export const pollParts = pgTable("poll_parts", {
   id: serial("id").primaryKey(),
   pollId: integer("poll_id")
@@ -86,12 +61,9 @@ export const pollParts = pgTable("poll_parts", {
   polloptId: integer("pollopt_id")
     .notNull()
     .references(() => items.id),
-  // Order/rank in display order
   rank: integer("rank").notNull(),
 });
 
-// Junction table for user submissions
-// List of the user's stories, polls and comments
 export const userSubmissions = pgTable("user_submissions", {
   id: serial("id").primaryKey(),
   userId: text("user_id")
@@ -102,24 +74,46 @@ export const userSubmissions = pgTable("user_submissions", {
     .references(() => items.id),
 });
 
-// Sync runs table - tracks HN API sync operations
 export const syncRuns = pgTable("sync_runs", {
   id: serial("id").primaryKey(),
-  // The max item ID at the start of this sync run
   startMaxItem: integer("start_max_item").notNull(),
-  // The last item ID that was successfully fetched
+  targetEndItem: integer("target_end_item").notNull().default(0),
+  totalItems: integer("total_items").notNull().default(0),
   lastFetchedItem: integer("last_fetched_item").notNull(),
-  // Number of items fetched in this run
   itemsFetched: integer("items_fetched").notNull().default(0),
-  // When the sync run started
   startedAt: timestamp("started_at").notNull().defaultNow(),
-  // When the sync run completed
   completedAt: timestamp("completed_at"),
-  // Status of the sync run
-  status: text("status").notNull().default("running"), // 'running', 'completed', 'failed'
+  status: text("status").notNull().default("running"),
+  errorMessage: text("error_message"),
 });
 
-// Relations
+export const keywordExtractions = pgTable("keyword_extractions", {
+  id: serial("id").primaryKey(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  itemCount: integer("item_count").notNull(),
+  textLength: integer("text_length").notNull(),
+  filterDate: text("filter_date"),
+  itemIds: text("item_ids"),
+});
+
+export const keywords = pgTable(
+  "keywords",
+  {
+    id: serial("id").primaryKey(),
+    extractionId: integer("extraction_id").notNull(),
+    keyword: text("keyword").notNull(),
+    score: real("score").notNull(),
+    rank: integer("rank").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.extractionId],
+      foreignColumns: [keywordExtractions.id],
+      name: "keywords_extraction_id_keyword_extractions_id_fk",
+    }).onDelete("cascade"),
+  ]
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   items: many(items),
   submissions: many(userSubmissions),
@@ -192,37 +186,6 @@ export const userSubmissionsRelations = relations(
   })
 );
 
-// Keyword extraction runs - tracks each keyword analysis session
-export const keywordExtractions = pgTable("keyword_extractions", {
-  id: serial("id").primaryKey(),
-  // When the extraction was performed
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  // Number of items analyzed
-  itemCount: integer("item_count").notNull(),
-  // Total text length processed
-  textLength: integer("text_length").notNull(),
-  // Optional: date filter used (if any)
-  filterDate: text("filter_date"),
-  // Optional: comma-separated list of item IDs analyzed
-  itemIds: text("item_ids"),
-});
-
-// Keywords extracted from items
-export const keywords = pgTable("keywords", {
-  id: serial("id").primaryKey(),
-  // Reference to the extraction run
-  extractionId: integer("extraction_id")
-    .notNull()
-    .references(() => keywordExtractions.id, { onDelete: "cascade" }),
-  // The keyword text
-  keyword: text("keyword").notNull(),
-  // YAKE score (lower = more relevant)
-  score: real("score").notNull(),
-  // Rank within this extraction (1 = most relevant)
-  rank: integer("rank").notNull(),
-});
-
-// Relations for keyword extractions
 export const keywordExtractionsRelations = relations(
   keywordExtractions,
   ({ many }) => ({
@@ -237,7 +200,6 @@ export const keywordsRelations = relations(keywords, ({ one }) => ({
   }),
 }));
 
-// Type exports for use in application
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Item = typeof items.$inferSelect;
@@ -249,6 +211,7 @@ export type KeywordExtraction = typeof keywordExtractions.$inferSelect;
 export type NewKeywordExtraction = typeof keywordExtractions.$inferInsert;
 export type Keyword = typeof keywords.$inferSelect;
 export type NewKeyword = typeof keywords.$inferInsert;
+
 // Daily keywords table - keywords aggregated by date
 export const dailyKeywords = pgTable("daily_keywords", {
   id: serial("id").primaryKey(),
