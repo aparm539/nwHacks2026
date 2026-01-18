@@ -77,8 +77,8 @@ export const userSubmissions = pgTable("user_submissions", {
 export const syncRuns = pgTable("sync_runs", {
   id: serial("id").primaryKey(),
   startMaxItem: integer("start_max_item").notNull(),
-  targetEndItem: integer("target_end_item").notNull(),
-  totalItems: integer("total_items").notNull(),
+  targetEndItem: integer("target_end_item").notNull().default(0),
+  totalItems: integer("total_items").notNull().default(0),
   lastFetchedItem: integer("last_fetched_item").notNull(),
   itemsFetched: integer("items_fetched").notNull().default(0),
   startedAt: timestamp("started_at").notNull().defaultNow(),
