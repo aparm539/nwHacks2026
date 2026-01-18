@@ -353,7 +353,16 @@ export default function DraftPage() {
   // Silent refresh of keywords (for auto-update)
   const silentRefreshKeywords = useCallback(async () => {
     try {
-      // First trigger extraction silently
+      // First sync new items from HN to get fresh lastSeenTime values
+      const syncRes = await fetch("/api/sync/incremental", { method: "POST" });
+      const syncData = await syncRes.json();
+      
+      // If we have a sync run with items to fetch, process a chunk
+      if (syncData.success && syncData.syncRunId && syncData.totalItems > 0) {
+        await fetch(`/api/sync/chunk?syncRunId=${syncData.syncRunId}`, { method: "POST" });
+      }
+      
+      // Then trigger extraction to update keyword stats with fresh item times
       await fetch("/api/keywords/extract-daily", { method: "POST" });
       
       // Then fetch fresh trends
