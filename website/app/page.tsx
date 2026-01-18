@@ -3,18 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
-interface StoryItem {
-  id: number;
-  type: string;
-  title: string | null;
-  text: string | null;
-  by: string | null;
-  time: number;
-  url: string | null;
-  score: number | null;
-  descendants: number | null;
-}
-
 interface WeeklyMover {
   keyword: string;
   currentRank: number;
@@ -30,57 +18,11 @@ interface TrendsData {
   newThisWeek: WeeklyMover[];
 }
 
-// Helper to format relative time
-const formatTimeAgo = (unixTime: number): string => {
-  const now = Date.now() / 1000;
-  const diff = now - unixTime;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return `${Math.floor(diff / 604800)}w ago`;
-};
-
-// Helper to decode HTML entities from HN data
-const decodeHtmlEntities = (text: string): string => {
-  return text
-    .replace(/&#x27;/g, "'")
-    .replace(/&#x2F;/g, "/")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-};
-
-// Extract domain from URL
-const getDomain = (url: string): string => {
-  try {
-    const hostname = new URL(url).hostname;
-    return hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-};
-
 export default function Home() {
-  const [stories, setStories] = useState<StoryItem[]>([]);
   const [trends, setTrends] = useState<TrendsData | null>(null);
-  const [loadingStories, setLoadingStories] = useState(true);
   const [loadingTrends, setLoadingTrends] = useState(true);
-
-  useEffect(() => {
-    // Fetch top stories from the past 24 hours, sorted by score
-    fetch("/api/items/top?limit=20&hours=24")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.items) {
-          setStories(data.items);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingStories(false));
-
-    // Fetch keyword trends
+ useEffect(() => {
+  // Fetch keyword trends
     fetch("/api/keywords/trends")
       .then((res) => res.json())
       .then((data) => {
@@ -153,91 +95,6 @@ export default function Home() {
       {/* Main Content */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Left: Story Feed */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-white">Today&apos;s Top Stories</h3>
-              <span className="text-sm text-slate-500">past 24 hours</span>
-            </div>
-
-            {loadingStories ? (
-              <div className="space-y-4">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="rounded-xl border border-slate-800 bg-[#161b22] p-5 animate-pulse">
-                    <div className="h-5 bg-slate-800 rounded w-3/4 mb-3" />
-                    <div className="h-4 bg-slate-800 rounded w-1/4" />
-                  </div>
-                ))}
-              </div>
-            ) : stories.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-[#161b22] p-8 text-center">
-                <p className="text-slate-400">No stories yet. Run a sync to fetch data.</p>
-                <Link
-                  href="/sync"
-                  className="inline-block mt-4 px-4 py-2 rounded-lg bg-slate-700 text-white text-sm hover:bg-slate-600 transition-colors"
-                >
-                  Go to Sync
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {stories.map((story) => (
-                  <article
-                    key={story.id}
-                    className="rounded-xl border border-slate-800 bg-[#161b22] p-5 hover:border-slate-700 transition-colors"
-                  >
-                    <a
-                      href={story.url || `https://news.ycombinator.com/item?id=${story.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block group"
-                    >
-                      <h4 className="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors mb-2">
-                        {story.title && decodeHtmlEntities(story.title)}
-                      </h4>
-                    </a>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
-                      {story.score !== null && story.score > 0 && (
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10 3.5L12.5 8.5L18 9.5L14 13.5L15 19L10 16L5 19L6 13.5L2 9.5L7.5 8.5L10 3.5Z" />
-                          </svg>
-                          <span className="text-orange-400">{story.score}</span>
-                        </span>
-                      )}
-                      {story.by && (
-                        <span>
-                          by <span className="text-slate-400">{story.by}</span>
-                        </span>
-                      )}
-                      <span>{formatTimeAgo(story.time)}</span>
-                      {story.descendants !== null && story.descendants > 0 && (
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                          </svg>
-                          {story.descendants}
-                        </span>
-                      )}
-                      {story.url && (
-                        <span className="text-slate-600">({getDomain(story.url)})</span>
-                      )}
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <a
-                        href={`https://news.ycombinator.com/item?id=${story.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                      >
-                        View on HN
-                      </a>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
 
           {/* Right: Keyword Rankings Sidebar */}
           <aside className="w-full lg:w-80 flex-shrink-0">

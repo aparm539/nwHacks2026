@@ -328,3 +328,27 @@ export const blacklistOverrides = pgTable(
 
 export type BlacklistOverride = typeof blacklistOverrides.$inferSelect;
 export type NewBlacklistOverride = typeof blacklistOverrides.$inferInsert;
+
+// Keyword variant overrides table - manual parent/variant groupings
+export const keywordVariantOverrides = pgTable(
+  "keyword_variant_overrides",
+  {
+    id: serial("id").primaryKey(),
+    parentKeyword: text("parent_keyword").notNull(),
+    parentStem: text("parent_stem").notNull(),
+    variantKeyword: text("variant_keyword").notNull(),
+    variantStem: text("variant_stem").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    // Each variant stem should map to only one parent
+    variantStemUnique: unique("keyword_variant_overrides_variant_stem_unique").on(
+      table.variantStem
+    ),
+  })
+);
+
+export type KeywordVariantOverride =
+  typeof keywordVariantOverrides.$inferSelect;
+export type NewKeywordVariantOverride =
+  typeof keywordVariantOverrides.$inferInsert;

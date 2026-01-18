@@ -50,6 +50,13 @@
       "when": 1768751720809,
       "tag": "0006_red_trish_tilby",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1768756849404,
+      "tag": "0007_unique_killmonger",
+      "breakpoints": true
     }
   ]
 }

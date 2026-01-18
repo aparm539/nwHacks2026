@@ -1,0 +1,1 @@
+-- No-op migration (kept intentionally empty)

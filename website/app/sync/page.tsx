@@ -10,6 +10,8 @@ import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BlacklistTab } from "@/components/blacklist-tab";
+import { VariantTab } from "@/components/variant-tab";
+import { KeywordExtractTab } from "@/components/keyword-extract-tab";
 
 interface SyncRun {
   id: number;
@@ -463,9 +465,11 @@ export default function SyncDashboard() {
         </div>
 
         <Tabs defaultValue="sync" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="sync">Sync</TabsTrigger>
+          <TabsList className="grid w-full max-w-3xl grid-cols-4">
+            <TabsTrigger value="sync">Sync Status</TabsTrigger>
             <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+            <TabsTrigger value="variants">Variants</TabsTrigger>
+            <TabsTrigger value="extract">Extract</TabsTrigger>
           </TabsList>
 
           <TabsContent value="sync" className="space-y-6">
@@ -655,6 +659,14 @@ export default function SyncDashboard() {
 
           <TabsContent value="blacklist">
             <BlacklistTab />
+          </TabsContent>
+
+          <TabsContent value="variants">
+            <VariantTab />
+          </TabsContent>
+
+          <TabsContent value="extract">
+            <KeywordExtractTab />
           </TabsContent>
         </Tabs>
       </div>
