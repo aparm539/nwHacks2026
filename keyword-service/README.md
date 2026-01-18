@@ -38,6 +38,37 @@ docker build -t keyword-service .
 docker run -p 8000:8000 keyword-service
 ```
 
+### Deploying on Render (Docker)
+
+1) In Render, create a **Web Service** from this repo. Set **Root Directory** to `keyword-service` and choose **Docker** as the runtime (it auto-detects `Dockerfile`).
+2) Leave the start command empty (the Docker `CMD` runs `uvicorn`), and set the **port** to `8000`.
+3) Deploy. Render will give you a base URL such as `https://keyword-service.onrender.com`.
+
+#### Calling the API from your Next.js app
+
+Add an env var in `website/.env.local` (and in your hosting env):
+
+```
+NEXT_PUBLIC_KEYWORD_API_BASE=https://keyword-service.onrender.com
+```
+
+Use it in your fetches:
+
+```ts
+const base = process.env.NEXT_PUBLIC_KEYWORD_API_BASE;
+
+export async function extractKeywords(text: string) {
+  const res = await fetch(`${base}/extract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, max_keywords: 10 }),
+  });
+  if (!res.ok) throw new Error(`Extract failed: ${res.status}`);
+  return res.json();
+}
+```
+```
+
 ## API Endpoints
 
 ### Health Check
