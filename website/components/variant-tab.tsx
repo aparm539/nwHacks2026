@@ -183,7 +183,7 @@ export function VariantTab() {
       }
 
       await fetchVariants();
-      await refreshTrends();
+      // auto-extraction removed: user can run extraction manually or background job will handle it
     } catch {
       setError("Failed to add variants in bulk");
     } finally {
@@ -203,7 +203,7 @@ export function VariantTab() {
       const data = await res.json();
       if (data.success) {
         await fetchVariants();
-        await refreshTrends();
+        // auto-extraction removed: user can run extraction manually or background job will handle it
         setError(null);
       } else {
         setError(data.error || "Failed to remove variant");

@@ -363,7 +363,10 @@ export default function DraftPage() {
       }
       
       // Then trigger extraction to update keyword stats with fresh item times
-      await fetch("/api/keywords/extract-daily", { method: "POST" });
+      // Auto-extraction during drafts was removed; make this conditional via env flag
+      if (process.env.NEXT_PUBLIC_AUTO_EXTRACT_DURING_DRAFT === "true") {
+        await fetch("/api/keywords/extract-daily", { method: "POST" });
+      }
       
       // Then fetch fresh trends
       const res = await fetch("/api/keywords/trends");
