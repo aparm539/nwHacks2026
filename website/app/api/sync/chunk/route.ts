@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { items, users, syncRuns } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { fetchHNUser, fetchItemsBatch, HNItem } from "@/lib/hn-api";
+import { batchInsertItems } from "@/lib/batch-utils";
 
 const CHUNK_SIZE = 1000; // Items per chunk
 const CONCURRENCY = 20; // Parallel HN API requests
@@ -17,78 +18,6 @@ interface ChunkResult {
   targetEndItem: number;
   progress: number;
   error?: string;
-}
-
-// Batch insert users - collect unique usernames and insert all at once
-async function batchInsertUsers(usernames: string[]): Promise<void> {
-  if (usernames.length === 0) return;
-
-  const uniqueUsernames = [...new Set(usernames)];
-
-  // Check which users already exist
-  const existingUsers = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(inArray(users.id, uniqueUsernames));
-
-  const existingIds = new Set(existingUsers.map((u) => u.id));
-  const newUsernames = uniqueUsernames.filter((u) => !existingIds.has(u));
-
-  if (newUsernames.length === 0) return;
-
-  // Fetch new users from HN API in parallel
-  const userPromises = newUsernames.map((username) => fetchHNUser(username));
-  const hnUsers = await Promise.all(userPromises);
-
-  // Filter out nulls and prepare for insert
-  const usersToInsert = hnUsers
-    .filter((u): u is NonNullable<typeof u> => u !== null)
-    .map((u) => ({
-      id: u.id,
-      created: u.created,
-      karma: u.karma,
-      about: u.about ?? null,
-    }));
-
-  if (usersToInsert.length > 0) {
-    await db.insert(users).values(usersToInsert).onConflictDoNothing();
-  }
-}
-
-// Batch insert items
-async function batchInsertItems(hnItems: HNItem[]): Promise<number> {
-  if (hnItems.length === 0) return 0;
-
-  // Filter valid items
-  const validItems = hnItems.filter((item) => item.type && item.time);
-  if (validItems.length === 0) return 0;
-
-  // Collect all usernames for batch user insert
-  const usernames = validItems
-    .map((item) => item.by)
-    .filter((by): by is string => by !== undefined);
-
-  await batchInsertUsers(usernames);
-
-  // Prepare items for insert
-  const itemsToInsert = validItems.map((item) => ({
-    id: item.id,
-    deleted: item.deleted ?? false,
-    type: item.type!,
-    by: item.by ?? null,
-    time: item.time!,
-    text: item.text ?? null,
-    dead: item.dead ?? false,
-    parent: item.parent ?? null,
-    poll: item.poll ?? null,
-    url: item.url ?? null,
-    score: item.score ?? 0,
-    title: item.title ?? null,
-    descendants: item.descendants ?? 0,
-  }));
-
-  await db.insert(items).values(itemsToInsert).onConflictDoNothing();
-  return itemsToInsert.length;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ChunkResult>> {

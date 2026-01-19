@@ -39,19 +39,6 @@ interface ChunkResult {
   error?: string;
 }
 
-interface SSEMessage {
-  type: "progress" | "completed" | "idle" | "error";
-  syncRunId?: number;
-  itemsFetched?: number;
-  totalItems?: number;
-  lastFetchedItem?: number;
-  targetEndItem?: number;
-  startMaxItem?: number;
-  progress?: number;
-  status?: string;
-  message?: string;
-}
-
 const POLL_INTERVAL_SECONDS = 20;
 
 export default function SyncDashboard() {
@@ -61,13 +48,10 @@ export default function SyncDashboard() {
   const [currentProgress, setCurrentProgress] = useState<ChunkResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [autoSync, setAutoSync] = useState(false);
-  const [connected, setConnected] = useState(false);
   const [itemCount, setItemCount] = useState<number | null>(null);
-  const [smartPolling, setSmartPolling] = useState(false);
   const [countdown, setCountdown] = useState(POLL_INTERVAL_SECONDS);
   const [itemsBehind, setItemsBehind] = useState<number>(0);
   const [cronTesting, setCronTesting] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -98,18 +82,18 @@ export default function SyncDashboard() {
     }
   }, []);
 
-  // Start a new sync (initial or incremental)
-  const startSync = async (type: "initial" | "incremental") => {
+  // Start a new sync 
+  const startSync = async () => {
     setError(null);
     setSyncing(true);
 
     try {
-      const endpoint = type === "initial" ? "/api/sync/initial" : "/api/sync/incremental";
+      const endpoint = "/api/sync/incremental";
       const res = await fetch(endpoint, { method: "POST" });
       const data = await res.json();
 
       if (!data.success) {
-        setError(data.error || `Failed to start ${type} sync`);
+        setError(data.error || `Failed to start sync`);
         setSyncing(false);
         return;
       }
@@ -125,7 +109,7 @@ export default function SyncDashboard() {
       setAutoSync(true);
       processChunk(data.syncRunId);
     } catch {
-      setError(`Failed to start ${type} sync`);
+      setError(`Failed to start sync`);
       setSyncing(false);
     }
   };
@@ -216,69 +200,6 @@ export default function SyncDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSync]);
 
-  // Server-Sent Events connection for real-time updates
-  useEffect(() => {
-    const eventSource = new EventSource("/api/sync/stream");
-    eventSourceRef.current = eventSource;
-
-    eventSource.onopen = () => {
-      setConnected(true);
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data: SSEMessage = JSON.parse(event.data);
-
-        if (data.type === "progress") {
-          setSyncing(data.status === "running");
-          setCurrentProgress({
-            success: true,
-            done: false,
-            syncRunId: data.syncRunId!,
-            itemsFetched: data.itemsFetched!,
-            totalItems: data.totalItems!,
-            lastFetchedItem: data.lastFetchedItem!,
-            targetEndItem: data.targetEndItem!,
-            progress: data.progress!,
-          });
-        } else if (data.type === "completed") {
-          setSyncing(false);
-          setAutoSync(false);
-          setCurrentProgress((prev) =>
-            prev
-              ? { ...prev, done: true, progress: 100 }
-              : null
-          );
-          fetchRuns();
-        } else if (data.type === "idle") {
-          if (currentProgress?.done === false && !syncing) {
-            // Only clear if we weren't actively syncing
-          }
-        } else if (data.type === "error") {
-          setError(data.message || "Stream error");
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    };
-
-    eventSource.onerror = () => {
-      setConnected(false);
-      // Reconnect after 3 seconds
-      setTimeout(() => {
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-      }, 3000);
-    };
-
-    return () => {
-      eventSource.close();
-      eventSourceRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Initial fetch and polling (reduced frequency since we have SSE)
   useEffect(() => {
     fetchRuns();
@@ -286,28 +207,13 @@ export default function SyncDashboard() {
     const interval = setInterval(() => {
       fetchRuns();
       // Only fetch status if smart polling is disabled (smart polling handles its own status checks)
-      if (!smartPolling) {
         fetchStatus();
-      }
     }, 10000); // Reduced to 10s since SSE handles real-time
     return () => clearInterval(interval);
-  }, [fetchRuns, fetchStatus, smartPolling]);
+  }, [fetchRuns, fetchStatus]);
 
   // Smart polling: check for new items and auto-sync if behind
   useEffect(() => {
-    if (!smartPolling) {
-      // Clean up timers when disabled
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-        countdownRef.current = null;
-      }
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-      setCountdown(POLL_INTERVAL_SECONDS);
-      return;
-    }
 
     const checkAndSync = async () => {
       const status = await fetchStatus();
@@ -315,7 +221,7 @@ export default function SyncDashboard() {
       
       // If we're behind and not currently syncing, start an incremental sync
       if (status && status.itemsBehind > 0 && !syncing) {
-        startSync("incremental");
+        startSync();
       }
     };
 
@@ -341,7 +247,7 @@ export default function SyncDashboard() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [smartPolling]);
+  }, []);
 
   // Check if there's an active sync to resume
   useEffect(() => {
@@ -400,67 +306,6 @@ export default function SyncDashboard() {
               </svg>
               <span className="text-sm font-medium">Back</span>
             </Link>
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  connected ? "bg-green-500" : "bg-red-500"
-                }`}
-              />
-              <span className="text-sm text-gray-600">
-                {connected ? "connected" : "Reconnecting..."}
-              </span>
-            </div>
-          </div>
-
-          {/* Smart Polling Controls */}
-          <div className="flex items-center gap-4">
-            {smartPolling && (
-              <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-lg shadow-sm border">
-                <div className="flex items-center gap-2">
-                  <div className="relative w-8 h-8">
-                    <svg className="w-8 h-8 transform -rotate-90">
-                      <circle
-                        cx="16"
-                        cy="16"
-                        r="14"
-                        stroke="#e5e7eb"
-                        strokeWidth="2"
-                        fill="none"
-                      />
-                      <circle
-                        cx="16"
-                        cy="16"
-                        r="14"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        fill="none"
-                        strokeDasharray={`${(countdown / POLL_INTERVAL_SECONDS) * 88} 88`}
-                        className="transition-all duration-1000 ease-linear"
-                      />
-                    </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-gray-700">
-                      {countdown}
-                    </span>
-                  </div>
-                  <span className="text-sm text-gray-600">Next check</span>
-                </div>
-              </div>
-            )}
-            <button
-              onClick={() => setSmartPolling(!smartPolling)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                smartPolling
-                  ? "bg-blue-600 text-white hover:bg-blue-700"
-                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-              }`}
-            >
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  smartPolling ? "bg-white animate-pulse" : "bg-gray-400"
-                }`}
-              />
-              {smartPolling ? "Auto-Sync On" : "Auto-Sync Off"}
-            </button>
           </div>
         </div>
 
@@ -553,22 +398,13 @@ export default function SyncDashboard() {
               <div className="mb-8">
                 <div className="flex gap-4 mb-4 items-center">
                   <Button
-                    onClick={() => startSync("initial")}
-                    disabled={syncing || (itemCount !== null && itemCount > 0)}
-                    variant="default"
-                    size="lg"
-                    title={itemCount !== null && itemCount > 0 ? "Initial sync is only available when the database is empty" : "Fetch the last 7 days of HN items"}
-                  >
-                    {syncing ? "Starting..." : "Initial Sync (Last 7 Days)"}
-                  </Button>
-                  <Button
-                    onClick={() => startSync("incremental")}
+                    onClick={() => startSync()}
                     disabled={syncing}
                     variant="default"
                     size="lg"
                     title="Fetch new items since last sync"
                   >
-                    {syncing ? "Starting..." : "Incremental Sync"}
+                    {syncing ? "Starting..." : "Sync"}
                   </Button>
                   <Button
                     onClick={testCronSync}

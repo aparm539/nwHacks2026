@@ -79,11 +79,6 @@ Items are fetched from the [Hacker News Firebase API](https://github.com/HackerN
 
 #### Sync Process
 
-1. **Initial Sync** (`POST /api/sync/initial`)
-   - Runs only when DB is empty
-   - Binary search to find items from ~1 week ago
-   - Creates a `syncRun` record to track progress
-
 2. **Incremental Sync** (`POST /api/sync/incremental`)
    - Detects gap between local max item ID and remote max
    - Creates sync run to fetch missing items
@@ -191,7 +186,6 @@ Common noise words are filtered out (`lib/keyword-blacklist.ts`):
 #### Sync Endpoints
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/sync/initial` | POST | Start full sync (empty DB only) |
 | `/api/sync/incremental` | POST | Start incremental sync |
 | `/api/sync/chunk` | POST | Process one chunk of items |
 | `/api/sync/status` | GET | Current sync state & item count |
