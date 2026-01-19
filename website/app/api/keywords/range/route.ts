@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { items } from "@/db/schema";
-import { sql } from "drizzle-orm";
+import { sql } from 'drizzle-orm'
+import { NextResponse } from 'next/server'
+import { db } from '@/db'
+import { items } from '@/db/schema'
 
 export async function GET() {
   try {
@@ -13,20 +13,20 @@ export async function GET() {
         totalCount: sql<number>`COUNT(*)`,
         storyCount: sql<number>`COUNT(*) FILTER (WHERE ${items.type} = 'story')`,
       })
-      .from(items);
+      .from(items)
 
-    const { minTime, maxTime, totalCount, storyCount } = result[0];
+    const { minTime, maxTime, totalCount, storyCount } = result[0]
 
     if (!minTime || !maxTime) {
       return NextResponse.json({
         hasData: false,
-        message: "No items in database",
-      });
+        message: 'No items in database',
+      })
     }
 
     // Convert Unix timestamps to ISO date strings
-    const oldestDate = new Date(minTime * 1000).toISOString().split("T")[0];
-    const newestDate = new Date(maxTime * 1000).toISOString().split("T")[0];
+    const oldestDate = new Date(minTime * 1000).toISOString().split('T')[0]
+    const newestDate = new Date(maxTime * 1000).toISOString().split('T')[0]
 
     return NextResponse.json({
       hasData: true,
@@ -36,12 +36,13 @@ export async function GET() {
       newestTimestamp: maxTime,
       totalCount: Number(totalCount),
       storyCount: Number(storyCount),
-    });
-  } catch (error) {
-    console.error("Error fetching date range:", error);
+    })
+  }
+  catch (error) {
+    console.error('Error fetching date range:', error)
     return NextResponse.json(
       { error: String(error) },
-      { status: 500 }
-    );
+      { status: 500 },
+    )
   }
 }

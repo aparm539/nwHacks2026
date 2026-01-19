@@ -9,45 +9,46 @@
  * Flat structure only - no nested variants (a variant cannot have its own variants).
  */
 
-import { PorterStemmer } from "natural";
-import { db } from "@/db";
-import { keywordVariantOverrides, KeywordVariantOverride } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import type { KeywordVariantOverride } from '@/db/schema'
+import { eq } from 'drizzle-orm'
+import { PorterStemmer } from 'natural'
+import { db } from '@/db'
+import { keywordVariantOverrides } from '@/db/schema'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const dbAny = db as any;
+const dbAny = db as any
 
 // In-memory cache for variant overrides
-let variantCache: Map<string, string> | null = null; // Maps variantStem -> parentKeyword
-let cacheTimestamp = 0;
-const CACHE_TTL_MS = 60000; // 1 minute TTL
+let variantCache: Map<string, string> | null = null // Maps variantStem -> parentKeyword
+let cacheTimestamp = 0
+const CACHE_TTL_MS = 60000 // 1 minute TTL
 
 /**
  * Stem a keyword using Porter stemming algorithm
  */
 export function stemKeyword(keyword: string): string {
-  return PorterStemmer.stem(keyword.toLowerCase());
+  return PorterStemmer.stem(keyword.toLowerCase())
 }
 
 /**
  * Load variant overrides from database into cache
  */
 async function loadVariantCache(): Promise<Map<string, string>> {
-  const now = Date.now();
+  const now = Date.now()
   if (variantCache && now - cacheTimestamp < CACHE_TTL_MS) {
-    return variantCache;
+    return variantCache
   }
 
   const overrides: KeywordVariantOverride[] = await dbAny
     .select()
-    .from(keywordVariantOverrides);
-  
-  variantCache = new Map();
+    .from(keywordVariantOverrides)
+
+  variantCache = new Map()
   for (const override of overrides) {
-    variantCache.set(override.variantStem, override.parentKeyword);
+    variantCache.set(override.variantStem, override.parentKeyword)
   }
-  cacheTimestamp = now;
-  return variantCache;
+  cacheTimestamp = now
+  return variantCache
 }
 
 /**
@@ -55,9 +56,9 @@ async function loadVariantCache(): Promise<Map<string, string>> {
  * Returns null if the keyword is not a variant of anything
  */
 export async function getParentKeyword(keyword: string): Promise<string | null> {
-  const stem = stemKeyword(keyword);
-  const cache = await loadVariantCache();
-  return cache.get(stem) || null;
+  const stem = stemKeyword(keyword)
+  const cache = await loadVariantCache()
+  return cache.get(stem) || null
 }
 
 /**
@@ -67,9 +68,9 @@ export async function getVariants(parentKeyword: string): Promise<KeywordVariant
   const variants: KeywordVariantOverride[] = await dbAny
     .select()
     .from(keywordVariantOverrides)
-    .where(eq(keywordVariantOverrides.parentKeyword, parentKeyword));
-  
-  return variants;
+    .where(eq(keywordVariantOverrides.parentKeyword, parentKeyword))
+
+  return variants
 }
 
 /**
@@ -77,8 +78,8 @@ export async function getVariants(parentKeyword: string): Promise<KeywordVariant
  * Used to prevent deletion of parents with existing variants
  */
 export async function hasVariants(keyword: string): Promise<boolean> {
-  const variants = await getVariants(keyword);
-  return variants.length > 0;
+  const variants = await getVariants(keyword)
+  return variants.length > 0
 }
 
 /**
@@ -86,14 +87,14 @@ export async function hasVariants(keyword: string): Promise<boolean> {
  * Used to prevent nested variant structures
  */
 export async function isVariant(keyword: string): Promise<boolean> {
-  const parent = await getParentKeyword(keyword);
-  return parent !== null;
+  const parent = await getParentKeyword(keyword)
+  return parent !== null
 }
 
 /**
  * Clear the variant cache (call after making changes)
  */
 export function clearVariantCache(): void {
-  variantCache = null;
-  cacheTimestamp = 0;
+  variantCache = null
+  cacheTimestamp = 0
 }

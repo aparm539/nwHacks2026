@@ -1,18 +1,18 @@
-import { db } from "@/db";
-import { syncRuns } from "@/db/schema";
-import { eq, or, desc } from "drizzle-orm";
+import { desc, eq, or } from 'drizzle-orm'
+import { db } from '@/db'
+import { syncRuns } from '@/db/schema'
 
 export interface SyncRun {
-  id: number;
-  startMaxItem: number;
-  targetEndItem: number;
-  totalItems: number;
-  lastFetchedItem: number;
-  itemsFetched: number;
-  startedAt: Date;
-  completedAt: Date | null;
-  status: string;
-  errorMessage: string | null;
+  id: number
+  startMaxItem: number
+  targetEndItem: number
+  totalItems: number
+  lastFetchedItem: number
+  itemsFetched: number
+  startedAt: Date
+  completedAt: Date | null
+  status: string
+  errorMessage: string | null
 }
 
 /**
@@ -22,11 +22,11 @@ export async function findExistingRunningSyncOrPaused(): Promise<SyncRun | null>
   const [existingSync] = await db
     .select()
     .from(syncRuns)
-    .where(or(eq(syncRuns.status, "running"), eq(syncRuns.status, "paused")))
+    .where(or(eq(syncRuns.status, 'running'), eq(syncRuns.status, 'paused')))
     .orderBy(desc(syncRuns.startedAt))
-    .limit(1);
+    .limit(1)
 
-  return existingSync ?? null;
+  return existingSync ?? null
 }
 
 /**
@@ -35,7 +35,7 @@ export async function findExistingRunningSyncOrPaused(): Promise<SyncRun | null>
 export async function createSyncRun(
   startMaxItem: number,
   targetEndItem: number,
-  totalItems: number
+  totalItems: number,
 ): Promise<SyncRun> {
   const [syncRun] = await db
     .insert(syncRuns)
@@ -45,11 +45,11 @@ export async function createSyncRun(
       totalItems,
       lastFetchedItem: startMaxItem,
       itemsFetched: 0,
-      status: "running",
+      status: 'running',
     })
-    .returning();
+    .returning()
 
-  return syncRun;
+  return syncRun
 }
 
 /**
@@ -58,6 +58,6 @@ export async function createSyncRun(
 export async function resumeSyncRun(syncRunId: number): Promise<void> {
   await db
     .update(syncRuns)
-    .set({ status: "running" })
-    .where(eq(syncRuns.id, syncRunId));
+    .set({ status: 'running' })
+    .where(eq(syncRuns.id, syncRunId))
 }

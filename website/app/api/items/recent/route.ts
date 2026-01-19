@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { items } from "@/db/schema";
-import { desc, isNotNull, or, and, ne } from "drizzle-orm";
+import type { NextRequest } from 'next/server'
+import { and, desc, isNotNull, ne, or } from 'drizzle-orm'
+import { NextResponse } from 'next/server'
+import { db } from '@/db'
+import { items } from '@/db/schema'
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
+    const searchParams = request.nextUrl.searchParams
+    const limit = Math.min(Number.parseInt(searchParams.get('limit') || '20'), 50)
 
     // Fetch recent items that have text or title content
     // Filter out deleted and dead items
@@ -27,22 +28,23 @@ export async function GET(request: NextRequest) {
         and(
           or(isNotNull(items.text), isNotNull(items.title)),
           ne(items.deleted, true),
-          ne(items.dead, true)
-        )
+          ne(items.dead, true),
+        ),
       )
       .orderBy(desc(items.id))
-      .limit(limit);
+      .limit(limit)
 
     return NextResponse.json({
       success: true,
       items: recentItems,
       count: recentItems.length,
-    });
-  } catch (error) {
-    console.error("Error fetching recent items:", error);
+    })
+  }
+  catch (error) {
+    console.error('Error fetching recent items:', error)
     return NextResponse.json(
-      { error: "Failed to fetch recent items" },
-      { status: 500 }
-    );
+      { error: 'Failed to fetch recent items' },
+      { status: 500 },
+    )
   }
 }

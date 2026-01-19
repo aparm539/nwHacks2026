@@ -1,13 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { dailyKeywords, keywordStats, keywords as keywordsTable } from "@/db/schema";
-import { desc, sql } from "drizzle-orm";
+import type { NextRequest } from 'next/server'
+import { desc, sql } from 'drizzle-orm'
+import { NextResponse } from 'next/server'
+import { db } from '@/db'
+import { dailyKeywords, keywords as keywordsTable, keywordStats } from '@/db/schema'
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const searchParams = request.nextUrl.searchParams
+    const limit = Math.min(Number.parseInt(searchParams.get('limit') || '100'), 500)
+    const offset = Number.parseInt(searchParams.get('offset') || '0')
 
     // Get distinct keywords sorted by score (descending)
     let keywordsList = await db
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
       .groupBy(dailyKeywords.keyword)
       .orderBy(desc(sql<number>`AVG(${dailyKeywords.score})`))
       .limit(limit)
-      .offset(offset);
+      .offset(offset)
 
     if (keywordsList.length === 0) {
       keywordsList = await db
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
         .from(keywordStats)
         .orderBy(desc(keywordStats.totalDaysAppeared))
         .limit(limit)
-        .offset(offset);
+        .offset(offset)
     }
 
     if (keywordsList.length === 0) {
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
         .groupBy(keywordsTable.keyword)
         .orderBy(desc(sql<number>`AVG(${keywordsTable.score})`))
         .limit(limit)
-        .offset(offset);
+        .offset(offset)
     }
 
     // Get total count of distinct keywords
@@ -57,14 +58,14 @@ export async function GET(request: NextRequest) {
       .select({
         count: sql<number>`COUNT(DISTINCT ${dailyKeywords.keyword})::int`,
       })
-      .from(dailyKeywords);
+      .from(dailyKeywords)
 
     if (!countResult[0]?.count) {
       countResult = await db
         .select({
           count: sql<number>`COUNT(DISTINCT ${keywordStats.keyword})::int`,
         })
-        .from(keywordStats);
+        .from(keywordStats)
     }
 
     if (!countResult[0]?.count) {
@@ -72,10 +73,10 @@ export async function GET(request: NextRequest) {
         .select({
           count: sql<number>`COUNT(DISTINCT ${keywordsTable.keyword})::int`,
         })
-        .from(keywordsTable);
+        .from(keywordsTable)
     }
 
-    const total = countResult[0]?.count || 0;
+    const total = countResult[0]?.count || 0
 
     return NextResponse.json({
       success: true,
@@ -83,9 +84,10 @@ export async function GET(request: NextRequest) {
       total,
       limit,
       offset,
-    });
-  } catch (error) {
-    console.error("Error fetching keywords list:", error);
-    return NextResponse.json({ error: "Failed to fetch keywords" }, { status: 500 });
+    })
+  }
+  catch (error) {
+    console.error('Error fetching keywords list:', error)
+    return NextResponse.json({ error: 'Failed to fetch keywords' }, { status: 500 })
   }
 }

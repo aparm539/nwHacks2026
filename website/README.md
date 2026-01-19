@@ -35,12 +35,10 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-
-
 ### Changes to the DB
-Make after creating tables in schema.ts make sure to run 
+Make after creating tables in schema.ts make sure to run
 `pnpm drizzle-kit generate`
-and then 
+and then
 `pnpm drizzle-kit push`
 
 ---
@@ -168,7 +166,7 @@ Similar keywords are grouped under **root terms** to reduce fragmentation:
 
 ```
 "Claude 3.5", "claude sonnet", "Claude API"  →  "claude"
-"rust programming", "rustlang"               →  "rust"  
+"rust programming", "rustlang"               →  "rust"
 "GPT-4", "gpt 4o", "chatgpt"                 →  "gpt"
 ```
 
