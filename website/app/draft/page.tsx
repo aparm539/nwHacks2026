@@ -67,7 +67,6 @@ function extractTextWithKeywords(text: string, keywords: string[], maxLength: nu
   // Find the first keyword occurrence
   const lowerText = cleanText.toLowerCase()
   let firstKeywordIndex = -1
-  let firstKeyword = ''
 
   for (const keyword of keywords) {
     const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -76,7 +75,6 @@ function extractTextWithKeywords(text: string, keywords: string[], maxLength: nu
     if (match && match.index !== undefined) {
       if (firstKeywordIndex === -1 || match.index < firstKeywordIndex) {
         firstKeywordIndex = match.index
-        firstKeyword = keyword
       }
     }
   }
@@ -560,7 +558,7 @@ export default function DraftPage() {
 
     const parts = text.split(pattern)
 
-    return parts.map((part, idx) => {
+    return parts.map((part, _) => {
       const owner = getKeywordOwner(part.toLowerCase())
         || getKeywordOwner(part)
         || drafted.find(k => k.toLowerCase() === part.toLowerCase())
@@ -569,7 +567,7 @@ export default function DraftPage() {
 
       if (owner) {
         return (
-          <span key={idx} className={`font-bold ${bgToTextColor(owner.color)}`}>
+          <span key={part} className={`font-bold ${bgToTextColor(owner.color)}`}>
             {part}
           </span>
         )
@@ -686,7 +684,6 @@ export default function DraftPage() {
     if (draftState.players.length === 0)
       return null
 
-    const numPlayers = draftState.players.length
     const isReversed = (draftState.currentRound - 1) % 2 === 1
 
     const order = isReversed
@@ -1056,131 +1053,134 @@ export default function DraftPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {(showOnlyScoring ? scoringItems : recentItems).length === 0 ? (
-                  <div className="col-span-full text-center py-12">
-                    <div className="text-slate-400 mb-2">
-                      {showOnlyScoring ? 'Waiting for scoring updates...' : 'Waiting for new posts...'}
-                    </div>
-                    <div className="text-sm text-slate-600">
-                      {showOnlyScoring
-                        ? (
-                            <>
-                              When new posts or comments contain your drafted keywords, they will appear here.
-                              <br />
-                              {recentItems.length > 0 && (
-                                <span className="text-slate-500">
-                                  (
-                                  {recentItems.length}
-                                  {' '}
-                                  items seen, none matching keywords yet)
+                {(showOnlyScoring ? scoringItems : recentItems).length === 0
+                  ? (
+                      <div className="col-span-full text-center py-12">
+                        <div className="text-slate-400 mb-2">
+                          {showOnlyScoring
+                            ? 'Waiting for scoring updates...'
+                            : 'Waiting for new posts...'}
+                        </div>
+                        <div className="text-sm text-slate-600">
+                          {showOnlyScoring
+                            ? (
+                                <>
+                                  When new posts or comments contain your drafted keywords, they will appear here.
+                                  <br />
+                                  {recentItems.length > 0 && (
+                                    <span className="text-slate-500">
+                                      (
+                                      {recentItems.length}
+                                      {' '}
+                                      items seen, none matching keywords yet)
+                                    </span>
+                                  )}
+                                </>
+                              )
+                            : (
+                                'New posts and comments will appear here as they are made on Hacker News.'
+                              )}
+                        </div>
+                      </div>
+                    ) : (
+                      (showOnlyScoring ? scoringItems : recentItems).map((item) => {
+                        const scorers = getItemScorers(item)
+                        const hasScorers = scorers.length > 0
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={`rounded-lg border p-4 transition-colors ${
+                              hasScorers
+                                ? 'border-emerald-700/50 bg-[#161b22] ring-1 ring-emerald-500/20'
+                                : 'border-slate-800 bg-[#161b22] hover:border-slate-700'
+                            }`}
+                          >
+                            {/* Player score tags */}
+                            {hasScorers && (
+                              <div className="flex flex-wrap gap-1.5 mb-2">
+                                {scorers.map(({ player, keywords, points }) => (
+                                  <div
+                                    key={player.id}
+                                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
+                                      player.isHuman
+                                        ? 'bg-emerald-600/30 border border-emerald-500/50'
+                                        : 'bg-slate-800 border border-slate-700'
+                                    }`}
+                                  >
+                                    <div className={`w-2 h-2 rounded-full ${player.color}`} />
+                                    <span className={player.isHuman ? 'text-emerald-300 font-medium' : 'text-slate-300'}>
+                                      {player.isHuman ? 'You' : player.name}
+                                    </span>
+                                    <span className={player.isHuman ? 'text-emerald-400 font-bold' : 'text-slate-400 font-medium'}>
+                                      +
+                                      {points}
+                                    </span>
+                                    <span className="text-slate-500">
+                                      (
+                                      {keywords.join(', ')}
+                                      )
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-2 mb-2 text-xs text-slate-500">
+                              <span className={`px-1.5 py-0.5 rounded ${
+                                item.type === 'story' ? 'bg-orange-900/50 text-orange-400' : 'bg-slate-800 text-slate-400'
+                              }`}
+                              >
+                                {item.type}
+                              </span>
+                              {item.by && (
+                                <span>
+                                  by
+                                  {item.by}
                                 </span>
                               )}
-                            </>
-                          )
-                        : (
-                            'New posts and comments will appear here as they are made on Hacker News.'
-                          )}
-                    </div>
-                  </div>
-                ) : (
-                  (showOnlyScoring ? scoringItems : recentItems).map((item) => {
-                    const scorers = getItemScorers(item)
-                    const hasScorers = scorers.length > 0
-
-                    return (
-                      <div
-                        key={item.id}
-                        className={`rounded-lg border p-4 transition-colors ${
-                          hasScorers
-                            ? 'border-emerald-700/50 bg-[#161b22] ring-1 ring-emerald-500/20'
-                            : 'border-slate-800 bg-[#161b22] hover:border-slate-700'
-                        }`}
-                      >
-                        {/* Player score tags */}
-                        {hasScorers && (
-                          <div className="flex flex-wrap gap-1.5 mb-2">
-                            {scorers.map(({ player, keywords, points }) => (
-                              <div
-                                key={player.id}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
-                                  player.isHuman
-                                    ? 'bg-emerald-600/30 border border-emerald-500/50'
-                                    : 'bg-slate-800 border border-slate-700'
-                                }`}
-                              >
-                                <div className={`w-2 h-2 rounded-full ${player.color}`} />
-                                <span className={player.isHuman ? 'text-emerald-300 font-medium' : 'text-slate-300'}>
-                                  {player.isHuman ? 'You' : player.name}
+                              <span>{formatLastSeen(item.time)}</span>
+                              {item.score !== null && item.score > 0 && (
+                                <span className="text-emerald-400">
+                                  {item.score}
+                                  {' '}
+                                  pts
                                 </span>
-                                <span className={player.isHuman ? 'text-emerald-400 font-bold' : 'text-slate-400 font-medium'}>
-                                  +
-                                  {points}
-                                </span>
-                                <span className="text-slate-500">
-                                  (
-                                  {keywords.join(', ')}
-                                  )
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2 mb-2 text-xs text-slate-500">
-                          <span className={`px-1.5 py-0.5 rounded ${
-                            item.type === 'story' ? 'bg-orange-900/50 text-orange-400' : 'bg-slate-800 text-slate-400'
-                          }`}
-                          >
-                            {item.type}
-                          </span>
-                          {item.by && (
-                            <span>
-                              by
-                              {item.by}
-                            </span>
-                          )}
-                          <span>{formatLastSeen(item.time)}</span>
-                          {item.score !== null && item.score > 0 && (
-                            <span className="text-emerald-400">
-                              {item.score}
-                              {' '}
-                              pts
-                            </span>
-                          )}
-                        </div>
-                        {item.title && (
-                          <div className="text-sm font-medium text-white mb-1">
-                            {highlightKeywords(decodeHtmlEntities(item.title))}
-                          </div>
-                        )}
-                        {item.text && (() => {
-                          const matchedKeywords = hasScorers ? scorers.flatMap(s => s.keywords) : []
-                          const { text: snippetText, hasPrefix } = extractTextWithKeywords(
-                            item.text,
-                            matchedKeywords,
-                            300,
-                          )
-                          return (
-                            <div className="text-sm text-slate-400 line-clamp-3">
-                              {hasPrefix && <span className="text-slate-500">... </span>}
-                              {highlightKeywords(decodeHtmlEntities(snippetText))}
+                              )}
                             </div>
-                          )
-                        })()}
-                        {item.url && (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-400 hover:underline mt-1 block truncate"
-                          >
-                            {item.url}
-                          </a>
-                        )}
-                      </div>
-                    )
-                  })
-                )}
+                            {item.title && (
+                              <div className="text-sm font-medium text-white mb-1">
+                                {highlightKeywords(decodeHtmlEntities(item.title))}
+                              </div>
+                            )}
+                            {item.text && (() => {
+                              const matchedKeywords = hasScorers ? scorers.flatMap(s => s.keywords) : []
+                              const { text: snippetText, hasPrefix } = extractTextWithKeywords(
+                                item.text,
+                                matchedKeywords,
+                                300,
+                              )
+                              return (
+                                <div className="text-sm text-slate-400 line-clamp-3">
+                                  {hasPrefix && <span className="text-slate-500">... </span>}
+                                  {highlightKeywords(decodeHtmlEntities(snippetText))}
+                                </div>
+                              )
+                            })()}
+                            {item.url && (
+                              <a
+                                href={item.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-400 hover:underline mt-1 block truncate"
+                              >
+                                {item.url}
+                              </a>
+                            )}
+                          </div>
+                        )
+                      })
+                    )}
               </div>
             </div>
           </div>
@@ -1196,7 +1196,7 @@ export default function DraftPage() {
                   const player = draftState.players.find(p => p.id === pick.playerId)!
                   return (
                     <div
-                      key={idx}
+                      key={pick.keyword}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
                         player.isHuman ? 'bg-emerald-900/30 border border-emerald-700' : 'bg-[#0d1117]'
                       }`}
@@ -1446,7 +1446,7 @@ export default function DraftPage() {
                     </div>
 
                     {/* Right side - Draft button */}
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       {isHumanTurn
                         ? (
                             <div className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium">
@@ -1550,9 +1550,9 @@ export default function DraftPage() {
                           <div className="text-xs text-slate-600 text-center py-2">No picks yet</div>
                         )}
                     {/* Empty slots */}
-                    {Array.from({ length: draftState.totalRounds - roster.length }).map((_, idx) => (
+                    {Array.from({ length: draftState.totalRounds - roster.length }).map(_ => (
                       <div
-                        key={`empty-${idx}`}
+                        key={`empty-${_}`}
                         className="flex items-center justify-center rounded-lg px-3 py-1.5 border border-dashed border-slate-700 text-xs text-slate-600"
                       >
                         —
@@ -1612,11 +1612,11 @@ export default function DraftPage() {
       <div className="border-t border-slate-800 bg-[#161b22] px-6 py-3">
         <div className="flex items-center gap-2 overflow-x-auto">
           <span className="text-sm text-slate-500 shrink-0">Recent:</span>
-          {draftState.pickHistory.slice(-8).reverse().map((pick, idx) => {
+          {draftState.pickHistory.slice(-8).reverse().map((pick, _idx) => {
             const player = draftState.players.find(p => p.id === pick.playerId)!
             return (
               <div
-                key={idx}
+                key={pick.keyword}
                 className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm shrink-0 ${
                   player.isHuman ? 'bg-emerald-900/30' : 'bg-slate-800'
                 }`}

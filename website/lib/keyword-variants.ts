@@ -15,7 +15,6 @@ import { PorterStemmer } from 'natural'
 import { db } from '@/db'
 import { keywordVariantOverrides } from '@/db/schema'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbAny = db as any
 
 // In-memory cache for variant overrides

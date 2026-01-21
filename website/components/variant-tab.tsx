@@ -32,12 +32,6 @@ interface VariantGroup {
   variants: KeywordVariantOverride[]
 }
 
-interface VariantStats {
-  totalGroups: number
-  totalVariants: number
-  recentlyCreated: number
-}
-
 interface StoredKeyword {
   keyword: string
   avgScore: number
@@ -47,7 +41,6 @@ interface StoredKeyword {
 
 export function VariantTab() {
   const [groups, setGroups] = useState<VariantGroup[]>([])
-  const [stats, setStats] = useState<VariantStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [parentKeyword, setParentKeyword] = useState('')
@@ -93,7 +86,6 @@ export function VariantTab() {
       const data = await res.json()
       if (data.success) {
         setGroups(data.groups)
-        setStats(data.stats)
         setError(null)
       }
       else {
@@ -136,15 +128,6 @@ export function VariantTab() {
   useEffect(() => {
     fetchStoredKeywords()
   }, [fetchStoredKeywords])
-
-  const refreshTrends = useCallback(async () => {
-    try {
-      await fetch('/api/keywords/extract-daily?force=true', { method: 'POST' })
-    }
-    catch {
-      // Non-critical; trends may update on next refresh
-    }
-  }, [])
 
   useEffect(() => {
     setKeywordPage(0)
@@ -204,9 +187,6 @@ export function VariantTab() {
   }
 
   const removeVariant = async (variantKeyword: string) => {
-    if (!confirm(`Remove "${variantKeyword}" as a variant?`))
-      return
-
     try {
       const res = await fetch(
         `/api/keywords/variants?variantKeyword=${encodeURIComponent(variantKeyword)}`,
@@ -281,6 +261,9 @@ export function VariantTab() {
   const setVariantPage = (parentKeyword: string, page: number) => {
     setVariantPages(prev => ({ ...prev, [parentKeyword]: page }))
   }
+  const blacklistSet = useMemo(() => {
+    return new Set(blacklist.map(entry => entry.keyword))
+  }, [blacklist])
 
   const keywordColumns = useMemo<ColumnDef<StoredKeyword>[]>(
     () => [
@@ -391,7 +374,7 @@ export function VariantTab() {
         ),
       },
     ],
-    [selectedKeywords, setParentKeyword, setSelectedParent],
+    [selectedKeywords, setParentKeyword, setSelectedParent, blacklistSet, fetchBlacklist],
   )
 
   const variantKeywordSet = useMemo(() => {
@@ -401,10 +384,6 @@ export function VariantTab() {
     })
     return set
   }, [groups])
-
-  const blacklistSet = useMemo(() => {
-    return new Set(blacklist.map(entry => entry.keyword))
-  }, [blacklist])
 
   const sortedStoredKeywords = useMemo(
     () =>
@@ -612,155 +591,158 @@ export function VariantTab() {
           />
         </CardHeader>
         <CardContent>
-          {filteredGroups.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
-              {searchQuery ? 'No matching variant groups found' : 'No variant groups yet. Create one above to get started.'}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filteredGroups.map((group) => {
-                const isExpanded = expandedGroups.has(group.parentKeyword)
-                return (
-                  <div key={group.parentKeyword} className="border border-slate-200 rounded-lg overflow-hidden">
-                    {/* Parent Header */}
-                    <div
-                      className="flex items-center justify-between p-4 bg-slate-100 cursor-pointer hover:bg-slate-200 transition-colors"
-                      onClick={() => toggleGroup(group.parentKeyword)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <svg
-                          className={`w-4 h-4 text-slate-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+          {filteredGroups.length === 0
+            ? (
+                <div className="text-center py-8 text-slate-500">
+                  {searchQuery
+                    ? 'No matching variant groups found'
+                    : 'No variant groups yet. Create one above to get started.'}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredGroups.map((group) => {
+                    const isExpanded = expandedGroups.has(group.parentKeyword)
+                    return (
+                      <div key={group.parentKeyword} className="border border-slate-200 rounded-lg overflow-hidden">
+                        {/* Parent Header */}
+                        <div
+                          className="flex items-center justify-between p-4 bg-slate-100 cursor-pointer hover:bg-slate-200 transition-colors"
+                          onClick={() => toggleGroup(group.parentKeyword)}
                         >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        <span className="font-medium text-black">{group.parentKeyword}</span>
-                        <Badge variant="secondary">
-                          {group.variants.length}
-                          {' '}
-                          variant
-                          {group.variants.length !== 1 ? 's' : ''}
-                        </Badge>
-                      </div>
-                    </div>
+                          <div className="flex items-center gap-3">
+                            <svg
+                              className={`w-4 h-4 text-slate-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                            <span className="font-medium text-black">{group.parentKeyword}</span>
+                            <Badge variant="secondary">
+                              {group.variants.length}
+                              {' '}
+                              variant
+                              {group.variants.length !== 1 ? 's' : ''}
+                            </Badge>
+                          </div>
+                        </div>
 
-                    {/* Variants List */}
-                    {isExpanded && (
-                      <div className="border-t border-slate-200 bg-white">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="text-black">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleVariantSort('variantKeyword')}
-                                  className="flex items-center gap-1 text-black"
-                                >
-                                  Variant Keyword
-                                  {variantSort.column === 'variantKeyword' && (
-                                    <span>{variantSort.direction === 'asc' ? '▲' : '▼'}</span>
-                                  )}
-                                </button>
-                              </TableHead>
-                              <TableHead className="text-black">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleVariantSort('createdAt')}
-                                  className="flex items-center gap-1 text-black"
-                                >
-                                  Added
-                                  {variantSort.column === 'createdAt' && (
-                                    <span>{variantSort.direction === 'asc' ? '▲' : '▼'}</span>
-                                  )}
-                                </button>
-                              </TableHead>
-                              <TableHead className="text-right text-black">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {(() => {
-                              const sortedVariants = getSortedVariants(group.variants)
-                              const currentPage = variantPages[group.parentKeyword] ?? 0
-                              const totalPages = Math.max(1, Math.ceil(sortedVariants.length / VARIANTS_PER_PAGE))
-                              const safePage = Math.min(currentPage, totalPages - 1)
-                              const pageStart = safePage * VARIANTS_PER_PAGE
-                              const pageVariants = sortedVariants.slice(pageStart, pageStart + VARIANTS_PER_PAGE)
-
-                              return pageVariants.map(variant => (
-                                <TableRow key={variant.id}>
-                                  <TableCell className="font-mono text-sm text-black">
-                                    {variant.variantKeyword}
-                                  </TableCell>
-                                  <TableCell className="text-black text-sm">
-                                    {new Date(variant.createdAt).toLocaleDateString()}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => removeVariant(variant.variantKeyword)}
-                                      className="text-red-600 hover:text-red-700"
+                        {/* Variants List */}
+                        {isExpanded && (
+                          <div className="border-t border-slate-200 bg-white">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="text-black">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleVariantSort('variantKeyword')}
+                                      className="flex items-center gap-1 text-black"
                                     >
-                                      Unlink
-                                    </Button>
-                                  </TableCell>
+                                      Variant Keyword
+                                      {variantSort.column === 'variantKeyword' && (
+                                        <span>{variantSort.direction === 'asc' ? '▲' : '▼'}</span>
+                                      )}
+                                    </button>
+                                  </TableHead>
+                                  <TableHead className="text-black">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleVariantSort('createdAt')}
+                                      className="flex items-center gap-1 text-black"
+                                    >
+                                      Added
+                                      {variantSort.column === 'createdAt' && (
+                                        <span>{variantSort.direction === 'asc' ? '▲' : '▼'}</span>
+                                      )}
+                                    </button>
+                                  </TableHead>
+                                  <TableHead className="text-right text-black">Actions</TableHead>
                                 </TableRow>
-                              ))
+                              </TableHeader>
+                              <TableBody>
+                                {(() => {
+                                  const sortedVariants = getSortedVariants(group.variants)
+                                  const currentPage = variantPages[group.parentKeyword] ?? 0
+                                  const totalPages = Math.max(1, Math.ceil(sortedVariants.length / VARIANTS_PER_PAGE))
+                                  const safePage = Math.min(currentPage, totalPages - 1)
+                                  const pageStart = safePage * VARIANTS_PER_PAGE
+                                  const pageVariants = sortedVariants.slice(pageStart, pageStart + VARIANTS_PER_PAGE)
+
+                                  return pageVariants.map(variant => (
+                                    <TableRow key={variant.id}>
+                                      <TableCell className="font-mono text-sm text-black">
+                                        {variant.variantKeyword}
+                                      </TableCell>
+                                      <TableCell className="text-black text-sm">
+                                        {new Date(variant.createdAt).toLocaleDateString()}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => removeVariant(variant.variantKeyword)}
+                                          className="text-red-600 hover:text-red-700"
+                                        >
+                                          Unlink
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                })()}
+                              </TableBody>
+                            </Table>
+                            {(() => {
+                              const totalPages = Math.max(
+                                1,
+                                Math.ceil(group.variants.length / VARIANTS_PER_PAGE),
+                              )
+                              const currentPage = variantPages[group.parentKeyword] ?? 0
+                              const safePage = Math.min(currentPage, totalPages - 1)
+                              return (
+                                <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2 text-sm text-black">
+                                  <span>
+                                    Page
+                                    {' '}
+                                    {safePage + 1}
+                                    {' '}
+                                    of
+                                    {' '}
+                                    {totalPages}
+                                  </span>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setVariantPage(group.parentKeyword, Math.max(0, safePage - 1))}
+                                      disabled={safePage === 0}
+                                    >
+                                      Previous
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        setVariantPage(
+                                          group.parentKeyword,
+                                          Math.min(totalPages - 1, safePage + 1),
+                                        )}
+                                      disabled={safePage >= totalPages - 1}
+                                    >
+                                      Next
+                                    </Button>
+                                  </div>
+                                </div>
+                              )
                             })()}
-                          </TableBody>
-                        </Table>
-                        {(() => {
-                          const totalPages = Math.max(
-                            1,
-                            Math.ceil(group.variants.length / VARIANTS_PER_PAGE),
-                          )
-                          const currentPage = variantPages[group.parentKeyword] ?? 0
-                          const safePage = Math.min(currentPage, totalPages - 1)
-                          return (
-                            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2 text-sm text-black">
-                              <span>
-                                Page
-                                {' '}
-                                {safePage + 1}
-                                {' '}
-                                of
-                                {' '}
-                                {totalPages}
-                              </span>
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setVariantPage(group.parentKeyword, Math.max(0, safePage - 1))}
-                                  disabled={safePage === 0}
-                                >
-                                  Previous
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    setVariantPage(
-                                      group.parentKeyword,
-                                      Math.min(totalPages - 1, safePage + 1),
-                                    )}
-                                  disabled={safePage >= totalPages - 1}
-                                >
-                                  Next
-                                </Button>
-                              </div>
-                            </div>
-                          )
-                        })()}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                    )
+                  })}
+                </div>
+              )}
         </CardContent>
       </Card>
     </div>

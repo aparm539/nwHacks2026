@@ -120,6 +120,8 @@ export async function POST(request: NextRequest) {
     const currentDate = new Date(`${minDate}T00:00:00Z`)
     const endDate = new Date(`${maxDate}T00:00:00Z`)
 
+    // eslint does not recognize that the date is being incremented here
+    // eslint-disable-next-line no-unmodified-loop-condition
     while (currentDate <= endDate) {
       allDates.push(currentDate.toISOString().split('T')[0])
       currentDate.setUTCDate(currentDate.getUTCDate() + 1)
@@ -137,7 +139,6 @@ export async function POST(request: NextRequest) {
 
     if (forceReextract) {
       // Clear all existing keywords and stats, reprocess everything
-      console.log('Force re-extraction: clearing existing daily keywords and stats...')
       await db.delete(dailyKeywords)
       await db.delete(keywordStats)
       dates = allDates
@@ -158,8 +159,6 @@ export async function POST(request: NextRequest) {
         results: [],
       })
     }
-
-    console.log(`Processing ${dates.length} days (${existingDateSet.size} already done) from ${allDates[0]} to ${allDates[allDates.length - 1]}`)
 
     const results: { date: string, itemCount: number, keywordCount: number }[] = []
 
@@ -187,7 +186,6 @@ export async function POST(request: NextRequest) {
         )
 
       if (dayItems.length === 0) {
-        console.log(`No items for ${dateStr}, skipping`)
         continue
       }
 
@@ -202,7 +200,6 @@ export async function POST(request: NextRequest) {
       const combinedText = textParts.join(' ')
 
       if (combinedText.length < 50) {
-        console.log(`Not enough text for ${dateStr}, skipping`)
         continue
       }
 
@@ -342,8 +339,6 @@ export async function POST(request: NextRequest) {
         itemCount: dayItems.length,
         keywordCount: aggregated.length,
       })
-
-      console.log(`Processed ${dateStr}: ${dayItems.length} items, ${aggregated.length} keywords`)
     }
 
     // Get updated count of days with keywords

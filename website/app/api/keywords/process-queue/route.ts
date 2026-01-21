@@ -43,7 +43,6 @@ export async function POST() {
         // Mark as completed
         await updateStatus(record.id, 'completed', undefined, new Date())
         successCount++
-        console.log(`Successfully processed keyword extraction for sync run ${record.syncRunId}`)
       }
       catch (error) {
         failureCount++

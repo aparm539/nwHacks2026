@@ -19,8 +19,8 @@ import type { BlacklistOverride } from '@/db/schema'
 import { PorterStemmer } from 'natural'
 import { db } from '@/db'
 import { blacklistOverrides } from '@/db/schema'
+ 
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbAny = db as any
 
 export const BLACKLISTED_KEYWORDS: string[] = [

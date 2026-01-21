@@ -49,8 +49,6 @@ export default function SyncDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [autoSync, setAutoSync] = useState(false)
   const [itemCount, setItemCount] = useState<number | null>(null)
-  const [countdown, setCountdown] = useState(POLL_INTERVAL_SECONDS)
-  const [itemsBehind, setItemsBehind] = useState<number>(0)
   const [cronTesting, setCronTesting] = useState(false)
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
   const pollRef = useRef<NodeJS.Timeout | null>(null)
@@ -76,7 +74,6 @@ export default function SyncDashboard() {
       const res = await fetch('/api/sync/status')
       const data = await res.json()
       setItemCount(data.itemCount)
-      setItemsBehind(data.itemsBehind)
       return data
     }
     catch {
@@ -84,39 +81,6 @@ export default function SyncDashboard() {
       return null
     }
   }, [])
-
-  // Start a new sync
-  const startSync = async () => {
-    setError(null)
-    setSyncing(true)
-
-    try {
-      const endpoint = '/api/sync/incremental'
-      const res = await fetch(endpoint, { method: 'POST' })
-      const data = await res.json()
-
-      if (!data.success) {
-        setError(data.error || `Failed to start sync`)
-        setSyncing(false)
-        return
-      }
-
-      // If no items to sync, just refresh status
-      if (data.totalItems === 0) {
-        setSyncing(false)
-        fetchStatus()
-        return
-      }
-
-      // Start processing chunks
-      setAutoSync(true)
-      processChunk(data.syncRunId)
-    }
-    catch {
-      setError(`Failed to start sync`)
-      setSyncing(false)
-    }
-  }
 
   // Process a single chunk
   const processChunk = async (syncRunId: number) => {
@@ -151,6 +115,39 @@ export default function SyncDashboard() {
       setSyncing(false)
       setAutoSync(false)
       fetchRuns()
+    }
+  }
+
+  // Start a new sync
+  const startSync = async () => {
+    setError(null)
+    setSyncing(true)
+
+    try {
+      const endpoint = '/api/sync/incremental'
+      const res = await fetch(endpoint, { method: 'POST' })
+      const data = await res.json()
+
+      if (!data.success) {
+        setError(data.error || `Failed to start sync`)
+        setSyncing(false)
+        return
+      }
+
+      // If no items to sync, just refresh status
+      if (data.totalItems === 0) {
+        setSyncing(false)
+        fetchStatus()
+        return
+      }
+
+      // Start processing chunks
+      setAutoSync(true)
+      processChunk(data.syncRunId)
+    }
+    catch {
+      setError(`Failed to start sync`)
+      setSyncing(false)
     }
   }
 
@@ -226,7 +223,6 @@ export default function SyncDashboard() {
   useEffect(() => {
     const checkAndSync = async () => {
       const status = await fetchStatus()
-      setCountdown(POLL_INTERVAL_SECONDS)
 
       // If we're behind and not currently syncing, start an incremental sync
       if (status && status.itemsBehind > 0 && !syncing) {
@@ -239,11 +235,6 @@ export default function SyncDashboard() {
 
     // Set up the polling interval
     pollRef.current = setInterval(checkAndSync, POLL_INTERVAL_SECONDS * 1000)
-
-    // Set up the countdown timer (updates every second)
-    countdownRef.current = setInterval(() => {
-      setCountdown(prev => (prev > 1 ? prev - 1 : POLL_INTERVAL_SECONDS))
-    }, 1000)
 
     return () => {
       if (pollRef.current) {

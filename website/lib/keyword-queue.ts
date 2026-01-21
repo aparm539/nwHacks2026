@@ -104,7 +104,7 @@ export async function logError(
   try {
     if (shouldRetry) {
       await incrementRetry(id)
-      console.log(`Queue record ${id} marked for retry. Error: ${errorMessage}`)
+      console.error(`Queue record ${id} marked for retry. Error: ${errorMessage}`)
     }
     else {
       await updateStatus(id, 'failed', errorMessage, new Date())

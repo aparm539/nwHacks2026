@@ -136,7 +136,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<CronSyncRe
     if (done) {
       try {
         await createQueueRecord(syncRunId)
-        console.log(`Queued keyword extraction for sync run ${syncRunId}`)
 
         // Trigger async processing (fire-and-forget to avoid timeout)
         fetch(
